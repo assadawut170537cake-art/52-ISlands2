@@ -264,7 +264,17 @@
     <!-- Script Logic -->
     <script>
         const COMPANY_LOGO = "https://i.ibb.co/N2w3P9pS/52.png";
-        let SERVER_DATA = JSON.parse(document.getElementById('gas-data-bridge').textContent);
+        
+        let SERVER_DATA = { isAdmin: false, backdateLimit: 2 }; // Default values
+        try {
+            const bridgeText = document.getElementById('gas-data-bridge').textContent.trim();
+            if (bridgeText && !bridgeText.startsWith('<?')) {
+                SERVER_DATA = JSON.parse(bridgeText);
+            }
+        } catch(e) {
+            console.warn("Failed to parse gas-data-bridge data, using defaults.", e);
+        }
+
         let globalEmployees = [];
         let state = { selectedGroup: null, currentLang: 'TH' };
 
@@ -393,12 +403,12 @@
             const tin = document.getElementById('def-in').value;
             const tout = document.getElementById('def-out').value;
             container.innerHTML = globalEmployees.map(e => `
-                <div class="bg-white p-3 rounded-2xl border border-slate-100 flex flex-col gap-2 shadow-sm ${e.position.includes('หัวหน้า') ? 'border-l-4 border-l-red-500' : ''}">
+                <div class="bg-white p-3 rounded-2xl border border-slate-100 flex flex-col gap-2 shadow-sm ${e.position && e.position.includes('หัวหน้า') ? 'border-l-4 border-l-red-500' : ''}">
                     <div class="flex items-center gap-3">
                         <input type="checkbox" class="chk-emp w-5 h-5 rounded accent-blue-600" data-id="${e.empId}" data-name="${e.fullName}">
                         <div class="flex-1">
                             <p class="text-xs font-bold text-slate-700">${e.fullName}</p>
-                            <p class="text-[9px] text-slate-400">ID: ${e.empId} | ${e.position}</p>
+                            <p class="text-[9px] text-slate-400">ID: ${e.empId} | ${e.position || '-'}</p>
                         </div>
                     </div>
                     <div class="flex gap-2">
