@@ -9,10 +9,10 @@
 function processUserChat(prompt, userId, replyToken) {
   try {
     var props = PropertiesService.getScriptProperties();
-    var adminIds = (props.getProperty('ADMIN_LINE_IDS') || props.getProperty('ADMIN_LINE_ID') || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    // ส่วนนี้ปรับเปลี่ยนตามโครงสร้างที่คุณใช้ในไฟล์หลัก
+    var adminIds = (getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
     var isAdmin = userId && adminIds.indexOf(userId) !== -1;
 
-    // ทางลัดด่วน: คำสั่งกู้คืนระบบของแอดมิน (ไม่ต้องส่งไปถาม AI)
     if (prompt.trim() === "กู้คืนระบบ" || prompt.toLowerCase() === "rollback") {
       var rollbackResult = rollbackLogic(userId, 1);
       return { success: rollbackResult.success, text: rollbackResult.success ? rollbackResult.message : rollbackResult.error };
@@ -21,39 +21,23 @@ function processUserChat(prompt, userId, replyToken) {
     var validNames = typeof getValidNamesForAI === "function" ? getValidNamesForAI() : "";
     var currentLogic = getCurrentLogic();
 
-    // เรียกใช้ Dynamic Prompt ที่เตรียมไว้ หรือใช้ Default
     var systemInstruction = typeof getDynamicPrompt === "function" 
       ? getDynamicPrompt('BOT') 
-      : `คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System\n
-         รายชื่อพนักงานในระบบปัจจุบัน: ${validNames}\n
-         ตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}\n\n
-         หน้าที่และวิธีการตอบกลับ:\n
-         1. แนะนำการใช้งาน (Guide): หากผู้ใช้ถามวิธีใช้แอป ให้ตอบอธิบายสั้น กระชับ สุภาพ สไตล์พี่สอนน้อง เป็นข้อๆ\n
-         2. บันทึกงาน (Natural Language Input): หากผู้ใช้สั่งงานด้วยภาษาทั่วไป ให้แปลงเป็นโครงสร้าง JSON นี้เท่านั้น:\n
-            {"type":"SAVE", "payload": {"date":"YYYY-MM-DD", "default_site":"ชื่อไซต์", "time_start":"08.00", "time_end":"17.00", "employees":[{"firstname":"ชื่อพนักงาน","task":"ลักษณะงาน"}]}}\n
-            *กฎล็อกย้อนหลัง:* ตรรกะปัจจุบันยอมให้บันทึกย้อนหลังได้ ${currentLogic.backdate_limit} วัน (สถานะผู้ใช้ปัจจุบันคือ Admin: ${isAdmin})\n
-         3. อัปเดตตรรกะระบบ: หากแอดมินสั่งปรับเปลี่ยนกฎเกณฑ์ ให้ตอบกลับเป็น JSON นี้เท่านั้น:\n
-            {"type":"UPDATE_LOGIC", "new_logic": {"backdate_limit": 3}} \n
-            *กฎเหล็ก:* จำกัดสิทธิ์เฉพาะ Admin เท่านั้น\n\n
-         สรุปใจความสำคัญไว้บรรทัดแรกเสมอ ใช้ภาษาสุภาพ เป็นกันเอง`;
+      : `คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System\nรายชื่อพนักงานในระบบปัจจุบัน: ${validNames}\nตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}\n\nหน้าที่และวิธีการตอบกลับ:\n1. แนะนำการใช้งาน (Guide): หากผู้ใช้ถามวิธีใช้แอป ให้ตอบอธิบายสั้น กระชับ สุภาพ สไตล์พี่สอนน้อง เป็นข้อๆ\n2. บันทึกงาน (Natural Language Input): หากผู้ใช้สั่งงานด้วยภาษาทั่วไป ให้แปลงเป็นโครงสร้าง JSON นี้เท่านั้น:\n {"type":"SAVE", "payload": {"date":"YYYY-MM-DD", "default_site":"ชื่อไซต์", "time_start":"08.00", "time_end":"17.00", "employees":[{"firstname":"ชื่อพนักงาน","task":"ลักษณะงาน"}]}}\n *กฎล็อกย้อนหลัง:* ตรรกะปัจจุบันยอมให้บันทึกย้อนหลังได้ ${currentLogic.backdate_limit} วัน (สถานะผู้ใช้ปัจจุบันคือ Admin: ${isAdmin})\n3. อัปเดตตรรกะระบบ: หากแอดมินสั่งปรับเปลี่ยนกฎเกณฑ์ ให้ตอบกลับเป็น JSON นี้เท่านั้น:\n {"type":"UPDATE_LOGIC", "new_logic": {"backdate_limit": 3}} \n *กฎเหล็ก:* จำกัดสิทธิ์เฉพาะ Admin เท่านั้น\n\nสรุปใจความสำคัญไว้บรรทัดแรกเสมอ ใช้ภาษาสุภาพ เป็นกันเอง`;
 
     if (typeof callGemini !== "function") return { success: false, text: "⚠️ ไม่พบตัวซิงค์เชื่อมต่อโมเดลสารพัดประโยชน์ (callGemini)" };
     
-    // เรียกใช้งาน AI
-    var aiRawText = callGemini(prompt, systemInstruction, false, false);
+    var aiRawText = callGemini(prompt, systemInstruction, false);
     if (!aiRawText) return { success: false, text: "⚠️ ไม่สามารถติดต่อสมอง AI ได้ในขณะนี้ครับ" };
 
-    // คลีนนิ่งโครงสร้าง Markdown Block
     var cleanJsonStr = aiRawText.replace(new RegExp("\\x60\\x60\\x60(?:json)?", "gi"), "").replace(new RegExp("\\x60\\x60\\x60", "g"), "").trim();
     var data;
     try {
       data = JSON.parse(cleanJsonStr);
     } catch(e) {
-      // หากไม่ใช่ JSON แปลว่า AI ตอบกลับมาเป็นข้อความปกติ
       return { success: true, text: aiRawText };
     }
 
-    // --- แยกเส้นทางการทำงานตามคำสั่งที่ AI วิเคราะห์ได้ ---
     if (data.type === "SAVE") {
       var today = new Date(); today.setHours(0,0,0,0);
       var entryDate = new Date(data.payload.date); entryDate.setHours(0,0,0,0);
@@ -62,13 +46,12 @@ function processUserChat(prompt, userId, replyToken) {
       
       if (diffDays > allowedDays && !isAdmin) {
         logAuditTrail(userId, "SAVE_DENIED", prompt, JSON.stringify(data.payload), 0.0, "REJECT", "Gating blocked via Chat input branch");
-        return { success: false, text: `❌ ไม่สามารถลงข้อมูลย้อนหลังเกิน ${ allowedDays } วันได้ครับ(จำกัดสิทธิ์เฉพาะ Admin)` };
+        return { success: false, text: `❌ ไม่สามารถลงข้อมูลย้อนหลังเกิน ${ allowedDays } วันได้ครับ (จำกัดสิทธิ์เฉพาะ Admin)` };
       }
       
-      // ส่งต่อให้กระบวนการหลักจัดการ
-    if (typeof handleClockInHybrid === "function") {
-      handleClockInHybrid(prompt, userId, replyToken, data.payload);
-      }else {
+      if (typeof handleClockIn === "function") {
+          handleClockIn(`#${data.payload.date}\n${data.payload.default_site} เข้า ${data.payload.default_site}\n${data.payload.time_start}-${data.payload.time_end}\n${data.payload.employees.map((e,i) => `${i+1}.${e.firstname} / ${e.task}`).join('\n')}`, userId, replyToken);
+      } else {
         throw new Error("ระบบไม่พร้อมทำงาน (ขาดฟังก์ชัน handleClockIn)");
       }
       return { success: true, text: null }; 
@@ -87,6 +70,7 @@ function processUserChat(prompt, userId, replyToken) {
     if (typeof logErrorToSheet === "function") {
       logErrorToSheet(dbId, prompt, "AI_Assistant Error: " + err.message);
     }
+    // สามารถเพิ่ม notifyAdminOnError("AI_Assistant Error", err.message) ตรงนี้ได้ครับ
     return { success: false, text: "🔴 เกิดข้อผิดพลาดในระบบสมองกล: " + err.message };
   }
 }
@@ -168,10 +152,11 @@ function rollbackLogic(userId, step) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(30000);
-    var props = PropertiesService.getScriptProperties();
-    var adminIds = (props.getProperty('ADMIN_LINE_IDS') || props.getProperty('ADMIN_LINE_ID') || "").split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+    // ปรับเปลี่ยนการดึง Admin IDs ให้ใช้ getDynamicConfig ตามมาตรฐานที่สั่ง
+    var adminIds = (getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(function(s) { return s.trim(); }).filter(Boolean);
     if (!userId || adminIds.indexOf(userId) === -1) return { success: false, error: "🔒 จำกัดสิทธิ์เฉพาะ Admin เท่านั้นครับ" };
 
+    var props = PropertiesService.getScriptProperties();
     var history = props.getProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY');
     history = history ? JSON.parse(history) : [];
 
@@ -324,77 +309,5 @@ function getProjectSourceCode() {
   } catch (e) {
     console.error("getProjectSourceCode Error: " + e.message);
     return `❌ ไม่สามารถอ่านโค้ดของโปรเจกต์ได้เนื่องจาก: ${e.message}`;
-  }
-}
-// =================================================================
-// system_control.gs (ฟังก์ชันกลางสำหรับ LINE Bot และ Web App ปรับเปลี่ยนค่าระบบ)
-// =================================================================
-
-/**
- * 1. ฟังก์ชันปรับเกณฑ์คะแนนความแม่นยำ (Fuzzy Threshold)
- * มีการทำ Validation Logic ป้องกันตัวเลขรวน
- */
-function updateSystemThreshold(newThreshold, updatedBy) {
-  const score = parseFloat(newThreshold);
-  
-  // Validation Logic: เกณฑ์คะแนนต้องอยู่ระหว่าง 0.50 ถึง 0.95 เท่านั้น
-  if (isNaN(score) || score < 0.50 || score > 0.95) {
-    return { success: false, message: "⚠️ ปรับไม่สำเร็จ: เกณฑ์คะแนนต้องเป็นตัวเลขระหว่าง 0.50 ถึง 0.95 ครับ" };
-  }
-
-  const props = PropertiesService.getScriptProperties();
-  props.setProperty("FUZZY_MATCH_THRESHOLD", score.toFixed(2));
-
-  // หากมีฟังก์ชันบันทึกประวัติการแก้ไขระบบย้อนหลัง (เหมือนใน AI_Assistant.js ของพี่) สามารถบันทึกได้ตรงนี้
-  if (typeof addLogicHistory === 'function') {
-    addLogicHistory({ DYNAMIC_THRESHOLD: score }, updatedBy, "update_threshold", `ปรับเกณฑ์ความแม่นยำเป็น ${score * 100}%`);
-  }
-
-  return { success: true, message: `⚙️ ปรับเกณฑ์ความแม่นยำเป็น ${(score * 100).toFixed(0)}% เรียบร้อยโดยคุณ ${updatedBy} ครับ` };
-}
-
-/**
- * 2. ฟังก์ชันเพิ่ม/ลด คำศัพท์ในคลังข้อมูลหลัก (Reference Words)
- * อ้างอิงจากฐานข้อมูล Google Sheets หน้า "DATA" (คอลัมน์ C ไซท์งานที่ทำ)
- */
-function manageReferenceWord(action, word, updatedBy) {
-  if (!word || word.trim() === "") return { success: false, message: "⚠️ กรุณาระบุคำหลักที่ต้องการจัดการครับ" };
-  
-  try {
-    const targetWord = word.trim();
-    const ssId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
-    if (!ssId) return { success: false, message: "❌ ไม่พบ KEY ฐานข้อมูลกลาง (EXTERNAL_DATABASE_ID)" };
-    
-    const ss = SpreadsheetApp.openById(ssId);
-    const sheet = ss.getSheetByName("DATA");
-    if (!sheet) return { success: false, message: "❌ ไม่พบหน้าชีตชื่อ 'DATA' ในระบบ" };
-
-    // คอลัมน์ C (ดึงรายการไซต์งานเดิมมาตรวจสอบ)
-    const lastRow = sheet.getLastRow();
-    const range = sheet.getRange(2, 3, lastRow > 1 ? lastRow - 1 : 1, 1);
-    const values = range.getValues().map(r => r[0].toString().trim());
-
-    if (action === "add") {
-      // ตรวจสอบคำซ้ำก่อนเพิ่ม (Validation)
-      if (values.includes(targetWord)) {
-        return { success: false, message: `⚠️ คำว่า "${targetWord}" มีอยู่ในคลังไซต์งานเดิมอยู่แล้วครับ` };
-      }
-      sheet.appendRow(["", "", targetWord]); // คอลัมน์ C คือตำแหน่งที่ 3 (เว้น A, B ไว้ตามโครงสร้างชีต DATA ของพี่)
-      return { success: true, message: `✅ เพิ่มคำหลัก "${targetWord}" ลงในฐานข้อมูลไซต์งานเรียบร้อยครับ` };
-    } 
-    
-    if (action === "delete") {
-      const index = values.indexOf(targetWord);
-      if (index === -1) {
-        return { success: false, message: `⚠️ ไม่พบคำหลัก "${targetWord}" ในคลังฐานข้อมูลครับ` };
-      }
-      // ลบแถวที่พบคำนั้นออก (บวก 2 เพราะเริ่มเก็บที่แถว 2)
-      sheet.deleteRow(index + 2);
-      return { success: true, message: `🗑️ ลบคำหลัก "${targetWord}" ออกจากฐานข้อมูลเรียบร้อยครับ` };
-    }
-
-    return { success: false, message: "⚠️ คำสั่งไม่ถูกต้อง (รองรับเฉพาะ add หรือ delete)" };
-  } catch (e) {
-    return { success: false, message: `❌ เกิดข้อผิดพลาดทางเทคนิค: ${e.message}` };
   }
 }

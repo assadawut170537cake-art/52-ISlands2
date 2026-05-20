@@ -23,7 +23,7 @@ function writeToDailySheetBatch(data, userId, fileId) {
   const ss = SpreadsheetApp.openById(fileId);
   const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
   
-  // 🛠️ [Hotfix] ค้นหาแท็บแบบทนทานต่อช่องว่าง (Space-Tolerant Finder)
+  // 🛠️ ค้นหาแท็บแบบทนทานต่อช่องว่าง (Space-Tolerant Finder)
   let sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     const sheets = ss.getSheets();
@@ -54,9 +54,11 @@ function writeToDailySheetBatch(data, userId, fileId) {
     const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
     let rowIndex = -1;
     
+    // 🔒 ปิดระบบ Fuzzy และ Includes: บังคับให้ชื่อต้องตรงกันเป๊ะๆ (Exact Match) 100% เท่านั้น
     for (let i = 0; i < block.length; i++) {
       const rowName = typeof normalize === 'function' ? normalize(block[i][CORE_DB.COL_NAME_CHECK - 1]) : block[i][CORE_DB.COL_NAME_CHECK - 1]; 
-      if (rowName !== "" && (rowName === inputName || rowName.includes(inputName))) {
+      // แก้ไขลบ .includes() ออก และใช้ === ตรวจสอบแบบตายตัว
+      if (rowName !== "" && rowName === inputName) {
         rowIndex = i; break;
       }
     }

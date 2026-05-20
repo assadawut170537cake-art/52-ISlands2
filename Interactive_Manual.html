@@ -1,0 +1,393 @@
+html_content = """<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Worksite Dashboard & Manual</title>
+    <style>
+        :root {
+            --bg-main: #F8FAFC;
+            --panel-dark: #0F172A;
+            --panel-sub: #1E293B;
+            --accent-blue: #38BDF8;
+            --text-dark: #334155;
+            --text-light: #FFFFFF;
+            --border-color: #CBD5E1;
+            --success: #22C55E;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif, 'Helvetica Neue', Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-dark);
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            overflow: hidden;
+        }
+
+        /* Header Style */
+        header {
+            background-color: var(--panel-dark);
+            color: var(--text-light);
+            padding: 30px 25px;
+            text-align: center;
+            border-bottom: 4px solid var(--accent-blue);
+        }
+
+        header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        header p {
+            color: var(--accent-blue);
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        /* Navigation Tabs */
+        .tabs {
+            display: table;
+            width: 100%;
+            background: var(--panel-sub);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab-link {
+            display: table-cell;
+            text-align: center;
+            padding: 15px 20px;
+            color: #94A3B8;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .tab-link:hover {
+            color: var(--text-light);
+            background-color: rgba(255,255,255,0.05);
+        }
+
+        .tab-link.active {
+            color: var(--text-light);
+            background-color: var(--panel-dark);
+            border-bottom: 3px solid var(--accent-blue);
+        }
+
+        /* Content Area */
+        .tab-content {
+            display: none;
+            padding: 30px 25px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        h2 {
+            font-size: 18px;
+            color: var(--panel-dark);
+            margin-bottom: 20px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #E2E8F0;
+        }
+
+        /* Card / Section Box */
+        .section-box {
+            background: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .section-box h3 {
+            font-size: 15px;
+            color: var(--panel-sub);
+            margin-bottom: 12px;
+        }
+
+        /* Manual Syntax Preformatted Style */
+        pre {
+            background-color: var(--panel-dark);
+            color: #38BDF8;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin-bottom: 15px;
+            border-left: 4px solid var(--success);
+        }
+
+        code {
+            font-family: 'Courier New', Courier, monospace;
+            background: #E2E8F0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #0F172A;
+        }
+
+        ul, ol {
+            padding-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        /* Form Configuration Styling */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--panel-sub);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            background-color: #FFFFFF;
+            color: var(--text-dark);
+            transition: border-color 0.2s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--panel-sub);
+        }
+
+        select.form-control {
+            height: 42px;
+            cursor: pointer;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: var(--panel-sub);
+            color: var(--text-light);
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: var(--panel-dark);
+        }
+
+        .btn-success {
+            background-color: var(--success);
+        }
+        .btn-success:hover {
+            background-color: #16A34A;
+        }
+
+        /* Toast Notification */
+        #toast {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            background-color: var(--panel-dark);
+            color: var(--text-light);
+            border-radius: 6px;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            z-index: 1000;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        #toast.success { border-left: 5px solid var(--success); }
+        #toast.error { border-left: 5px solid var(--danger); }
+
+        /* Highlight alert badges */
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 4px;
+            color: white;
+            margin-left: 5px;
+        }
+        .badge-danger { background-color: var(--danger); }
+        .badge-success { background-color: var(--success); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🏢 SMART WORKSITE DASHBOARD</h1>
+        <p>ระบบจัดการตั้งค่าและคู่มือการลงเวลาทำงานพนักงาน (Web Interface)</p>
+    </header>
+
+    <div class="tabs">
+        <a class="tab-link active" onclick="openTab(event, 'manual')">📘 คู่มือการใช้งานบอท</a>
+        <a class="tab-link" onclick="openTab(event, 'settings')">⚙️ ตั้งค่าระบบหลังบ้าน (Config)</a>
+    </div>
+
+    <div id="manual" class="tab-content active">
+        <h2>📘 คู่มือรูปแบบการส่งข้อความลงเวลาหลังงานพนักงาน</h2>
+        
+        <div class="section-box">
+            <h3>📌 รูปแบบฟอร์มลงเวลามาตรฐาน (พิมพ์ลงในไลน์กลุ่ม)</h3>
+            <p>โปรดพิมพ์ตามโครงสร้างที่ระบบ Regex บังคับ เพื่อความแม่นยำ 100%:</p>
+            <pre>#18/05/2026
+พระราม3 เข้า สวนหลวง
+08.00-17.00
+ทั้งหมด 2 คน
+1. ออง / ทำงาน
+2. สมชาย / ทำงาน</pre>
+        </div>
+
+        <div class="section-box">
+            <h3>⚠️ กฎเหล็กและเงื่อนไขการทำงานของระบบพิจารณาชื่อ</h3>
+            <ul>
+                <li><strong>ระบบค้นหาชื่อตรงเป๊ะ (Exact Match 100%):</strong> ระบบได้ปิดการเดาคำใกล้เคียงเรียบร้อยแล้ว ดังนั้นการพิมพ์ชื่อพนักงาน เช่น <code>ออง</code> จะไม่วิ่งไปบันทึกทับคนชื่อ <code>อองจี</code> เพื่อป้องกันความผิดพลาด</li>
+                <li><strong>การลงที่พัก (Accomodation Extraction):</strong> ระบบจะคัดกรองวันที่ออกจากที่พักให้โดยอัตโนมัติ เช่น พิมพ์ข้อความว่า <code># 18/05/69 พระราม3</code> ระบบจะบันทึกเข้า Google Sheets เฉพาะคำว่า <code>พระราม3</code> เท่านั้น</li>
+                <li><strong>การจำกัดการส่งย้อนหลัง (Backdate Limit):</strong> ระบบถูกตั้งค่าให้ส่งย้อนหลังได้ไม่เกินที่แอดมินกำหนด หากเกินโควต้าระบบจะปฏิเสธการลงเวลาโดยอัตโนมัติ <span class="badge badge-danger">BLOCK</span></li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="settings" class="tab-content">
+        <h2>⚙️ ส่วนจัดการตั้งค่าระบบ (System Configurations)</h2>
+        <p style="margin-bottom: 20px; font-size: 14px; color: #64748B;">* การแก้ไขค่าในหน้านี้จะอัปเดตตรงเข้าสู่ PropertiesService ของ Script และระบบ Cache ทันที ซึ่งจะมีผลกับ Line Bot ในเวลาเดียวกัน</p>
+        
+        <form id="configForm" onsubmit="saveConfig(event)">
+            <div class="section-box">
+                <h3>🟢 สถานะและการควบคุมระบบหลัก</h3>
+                
+                <div class="form-group">
+                    <label for="SYSTEM_STATUS">สถานะการทำงานบอท (SYSTEM_STATUS)</label>
+                    <select id="SYSTEM_STATUS" class="form-control">
+                        <option value="ON">ON (เปิดใช้งานระบบรับลงเวลาปกติ)</option>
+                        <option value="OFF">OFF (ปิดรับการลงเวลาชั่วคราว)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="IS_TESTING">โหมดทดสอบระบบ (IS_TESTING)</label>
+                    <select id="IS_TESTING" class="form-control">
+                        <option value="FALSE">FALSE (ปิด - โหมดทำงานจริงบันทึกข้อมูลจริง)</option>
+                        <option value="TRUE">TRUE (เปิด - โหมดทดลองระบบฝังป้ายทดสอบ)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="section-box">
+                <h3>📐 จูนตรรกะความแม่นยำและการลงเวลาย้อนหลัง</h3>
+
+                <div class="form-group">
+                    <label for="BACKDATE_LIMIT">โควต้าการส่งเวลาย้อนหลัง (หน่วย: วัน)</label>
+                    <input type="number" id="BACKDATE_LIMIT" class="form-control" min="0" max="30" placeholder="ตัวอย่าง: 2">
+                </div>
+
+                <div class="form-group">
+                    <label for="FUZZY_THRESHOLD">เกณฑ์ความแม่นยำของด่านตรวจคำ (FUZZY_THRESHOLD)</label>
+                    <input type="text" id="FUZZY_THRESHOLD" class="form-control" placeholder="ตัวอย่าง: 0.90">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-success">💾 บันทึกการตั้งค่าทั้งหมด</button>
+        </form>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+    // ฟังก์ชันสลับหน้าแท็บ เมนู UI
+    function openTab(evt, tabName) {
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tab-content");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].className = tabcontent[i].className.replace(" active", "");
+        }
+        tablinks = document.getElementsByClassName("tab-link");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }
+        document.getElementById(tabName).className += " active";
+        evt.currentTarget.className += " active";
+    }
+
+    // ฟังก์ชันแสดงกล่องแจ้งเตือน Toast
+    function showToast(message, type) {
+        var toast = document.getElementById("toast");
+        toast.innerText = message;
+        toast.className = type;
+        toast.style.display = "block";
+        setTimeout(function(){ toast.style.display = "none"; }, 3500);
+    }
+
+    // ฟังก์ชันส่งค่าไปบันทึกที่ระบบหลังบ้าน Google Apps Script (เรียกใช้ Hooks ใน 2_WebApp.gs)
+    function saveConfig(event) {
+        event.preventDefault();
+        
+        var status = document.getElementById("SYSTEM_STATUS").value;
+        var testing = document.getElementById("IS_TESTING").value;
+        var backdate = document.getElementById("BACKDATE_LIMIT").value;
+        var fuzzy = document.getElementById("FUZZY_THRESHOLD").value;
+
+        // ตรวจสอบว่าเปิดใช้งานบน Google Apps Script Web App หรือไม่
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+            // ทยอยส่งบันทึกผ่าน API ตัวกลางของไฟล์ 2_WebApp.gs ที่พิสูจน์แล้วว่าเสถียร
+            google.script.run.withSuccessHandler(function() {
+                google.script.run.withSuccessHandler(function() {
+                    google.script.run.withSuccessHandler(function() {
+                        google.script.run.withSuccessHandler(function() {
+                            showToast("💾 อัปเดตข้อมูลและล้าง Cache สำเร็จครบทุกรายการ!", "success");
+                        }).apiSaveConfigFromWeb("FUZZY_THRESHOLD", fuzzy);
+                    }).apiSaveConfigFromWeb("BACKDATE_LIMIT", backdate);
+                }).apiSaveConfigFromWeb("IS_TESTING", testing);
+            }).apiSaveConfigFromWeb("SYSTEM_STATUS", status);
+        } else {
+            // กรณีเปิดทดสอบบนเบราว์เซอร์ปกติทั่วไป (Local Test)
+            console.log("Saved Local:", {SYSTEM_STATUS: status, IS_TESTING: testing, BACKDATE_LIMIT: backdate, FUZZY_THRESHOLD: fuzzy});
+            showToast("🧪 จำลองสถานการณ์: บันทึกข้อมูลสำเร็จ (Local Host)", "success");
+        }
+    }
+</script>
+</body>
+</html>
+"""
+
+with open("Interactive_Manual.html", "w", encoding="utf-8") as file:
+    file.write(html_content)
