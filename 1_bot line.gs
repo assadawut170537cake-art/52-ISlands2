@@ -26,8 +26,14 @@ function replyWithButtons(tk, t, b) {
 }
 
 async function doPost(e) {
+  // 🛡️ เปิดใช้งานระบบ LockService เพื่อป้องกันพนักงานส่งข้อมูลชนกัน (Race Condition)
+  const lock = LockService.getScriptLock();
   let globalReplyToken = null;
+  
   try {
+    // รอคิวเข้าถึงทรัพยากรสูงสุด 30 วินาที หากมีการทำงานพร้อมกัน
+    lock.waitLock(30000);
+    
     if (!e || !e.postData) return ContentService.createTextOutput("No Data");
     const json = JSON.parse(e.postData.contents);
     const event = json.events[0];
@@ -61,6 +67,7 @@ async function doPost(e) {
         cache.remove(`PENDING_CLOCKIN_${userId}`);
         cache.remove(`PENDING_OT_CONFIRM_${userId}`);
         cache.remove(`PENDING_OT_DETAILS_${userId}`);
+        logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
         pendingClockIn12 = null; pendingOTConfirm = null; pendingOTDetails = null;
       }
 
@@ -72,6 +79,7 @@ async function doPost(e) {
         }
         let dataToProcess = JSON.parse(pendingOTDetails);
         cache.remove(`PENDING_OT_DETAILS_${userId}`);
+        logAuditTrail(userId, "PROCESS_OT_DETAILS", msg, JSON.stringify(dataToProcess), 1.0, "ACCEPT_DETAILS", "ประมวลผลรายละเอียดไซต์งานโอที");
         await finalizeClockInSaving(dataToProcess, userId, replyToken, dataToProcess.checkStatus, msg);
         return ContentService.createTextOutput("OK");
       }
@@ -80,17 +88,20 @@ async function doPost(e) {
         let dataToProcess = JSON.parse(pendingOTConfirm);
         if (msg === "ทำที่เดิม/งานเดิม") {
           cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+          logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
           await finalizeClockInSaving(dataToProcess, userId, replyToken, dataToProcess.checkStatus, null);
           return ContentService.createTextOutput("OK");
         }
         else if (msg === "เปลี่ยนไซต์/เปลี่ยนงาน") {
           cache.remove(`PENDING_OT_CONFIRM_${userId}`);
           cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300);
+          logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "CHANGE_SITE", "ร้องขอเปลี่ยนไซต์ทำโอที");
           reply(replyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
           return ContentService.createTextOutput("OK");
         }
         else if (msg === "ยกเลิกลงเวลา") {
           cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+          logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
           reply(replyToken, "❌ ยกเลิกเรียบร้อยครับ");
           return ContentService.createTextOutput("OK");
         }
@@ -99,10 +110,12 @@ async function doPost(e) {
       if (pendingClockIn12) {
         if (msg === "ยืนยันตามเวลาที่แจ้ง" || msg === "ลงเวลา 13.00 น.") {
           await processPendingClockIn(msg, pendingClockIn12, userId, replyToken);
+          logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "CONFIRM_12", "ยืนยันเวลาทำงานช่วงบ่าย");
           return ContentService.createTextOutput("OK");
         }
         else if (msg === "ยกเลิกลงเวลา") {
           cache.remove(`PENDING_CLOCKIN_${userId}`);
+          logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "REJECT_12", "ยกเลิกการยืนยันเวลาช่วงบ่าย");
           reply(replyToken, "❌ ยกเลิกเรียบร้อยครับ");
           return ContentService.createTextOutput("OK");
         }
@@ -120,6 +133,7 @@ async function doPost(e) {
           const parts = commandText.replace("ตั้งค่า", "").trim().split("=");
           if (parts.length >= 2) {
             setDynamicConfig(parts[0].trim(), parts.slice(1).join("=").trim());
+            logAuditTrail(userId, "ADMIN_CONFIG", commandText, parts[0].trim(), 1.0, "SET_CONFIG", "แอดมินเปลี่ยนค่าระบบ");
             reply(replyToken, `⚙️ บันทึกการตั้งค่าสำเร็จ!\n[${parts[0].trim()}] => ${parts.slice(1).join("=").trim()}`);
           } else {
             reply(replyToken, `⚠️ ตัวอย่าง: ตั้งค่า FUZZY_THRESHOLD=0.85`);
@@ -131,6 +145,7 @@ async function doPost(e) {
           reply(replyToken, "⏳ กำลังประมวลผลดึงข้อมูลและสร้างรายงาน... รอสักครู่ครับ");
           if (typeof generateProjectReportAndNotify === "function") {
             const reportStatus = generateProjectReportAndNotify();
+            logAuditTrail(userId, "ADMIN_REPORT", commandText, "GENERATE", 1.0, "REPORT", "แอดมินสั่งออกรายงานสรุปโครงการ");
             reply(replyToken, reportStatus);
           } else {
             reply(replyToken, "❌ ไม่พบระบบสร้างรายงาน (generateProjectReportAndNotify)");
@@ -145,6 +160,7 @@ async function doPost(e) {
 
           if (typeof rollbackLogic === "function") {
             const rollbackRes = rollbackLogic(userId, step);
+            logAuditTrail(userId, "ADMIN_ROLLBACK", commandText, "STEP_" + step, 1.0, "ROLLBACK", "แอดมินสั่งกู้คืนระบบย้อนหลัง");
             reply(replyToken, rollbackRes.success ? rollbackRes.message : rollbackRes.error);
           } else {
             reply(replyToken, "❌ ไม่พบระบบจัดการตรรกะ (rollbackLogic)");
@@ -152,15 +168,29 @@ async function doPost(e) {
           return ContentService.createTextOutput("OK");
         }
 
-        if (commandText === "เปิดระบบ") { setDynamicConfig("SYSTEM_STATUS", "ON"); reply(replyToken, "🟢 เปิดระบบทำงานแล้ว"); return ContentService.createTextOutput("OK"); }
-        if (commandText === "ปิดระบบ") { setDynamicConfig("SYSTEM_STATUS", "OFF"); reply(replyToken, "🔴 ปิดรับการลงเวลาชั่วคราว"); return ContentService.createTextOutput("OK"); }
-        if (commandText === "ทดสอบระบบ" || commandText === "ปิดโหมดทดสอบ") { handleTestMode(commandText, replyToken); return ContentService.createTextOutput("OK"); }
+        if (commandText === "เปิดระบบ") { 
+          setDynamicConfig("SYSTEM_STATUS", "ON"); 
+          logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "ON", 1.0, "SYSTEM_ON", "เปิดระบบทำงาน");
+          reply(replyToken, "🟢 เปิดระบบทำงานแล้ว"); 
+          return ContentService.createTextOutput("OK"); 
+        }
+        if (commandText === "ปิดระบบ") { 
+          setDynamicConfig("SYSTEM_STATUS", "OFF"); 
+          logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "OFF", 1.0, "SYSTEM_OFF", "ปิดระบบทำงาน");
+          reply(replyToken, "🔴 ปิดรับการลงเวลาชั่วคราว"); 
+          return ContentService.createTextOutput("OK"); 
+        }
+        if (commandText === "ทดสอบระบบ" || commandText === "ปิดโหมดทดสอบ") { 
+          handleTestMode(commandText, replyToken); 
+          return ContentService.createTextOutput("OK"); 
+        }
       }
 
       if (status === "OFF" && !isUserAdmin) return ContentService.createTextOutput("Ignored");
 
       // --- 👷 หมวดคำสั่งทั่วไป & ลงเวลา ---
       if (commandText === "ยกเลิกรายการล่าสุด" || commandText === "ยกเลิกล่าสุด") {
+        logAuditTrail(userId, "USER_UNDO", msg, "UNDO_LAST", 1.0, "UNDO", "ผู้ใช้ขอยกเลิกรายการล่าสุด");
         await handleUndoLastAction(userId, replyToken);
         return ContentService.createTextOutput("OK");
       }
@@ -188,6 +218,7 @@ async function doPost(e) {
       }
 
       if (/^\d{1,2}[\/.-]\d{1,2}/.test(commandText) || /^\#\d{1,2}[\/.-]\d{1,2}/.test(msg)) {
+        logAuditTrail(userId, "CLOCKIN_ENTRY", msg, "RAW_TEXT", 1.0, "SUBMIT", "พนักงานส่งข้อความบันทึกเวลารูปแบบข้อความทั่วไป");
         await handleClockIn(msg, userId, replyToken);
         return ContentService.createTextOutput("OK");
       }
@@ -195,53 +226,79 @@ async function doPost(e) {
       return ContentService.createTextOutput("Ignored");
 
     } else if (message.type === "image") {
+      logAuditTrail(userId, "IMAGE_ENTRY", "IMAGE_MESSAGE_ID_" + message.id, "IMAGE", 1.0, "SUBMIT_IMAGE", "พนักงานอัปโหลดรูปภาพบัตรตอก");
       await handleImageProcess(message.id, replyToken, userId);
     }
+    
     return ContentService.createTextOutput("OK");
+    
   } catch (err) {
     // 🛡️ [เกราะป้องกันระบบเงียบ] พิมพ์บอกรหัส Error ลงกลุ่มทันทีถ้าระบบค้าง
+    logAuditTrail("SYSTEM_ERROR", "RUNTIME_EXCEPTION", e && e.postData ? e.postData.contents : "NO_CONTENT", "", 0.0, "ERROR", err.message);
     if (globalReplyToken) {
       reply(globalReplyToken, "🔴 ระบบเกิดปัญหาภายใน: " + err.message + "\n(กรุณาแจ้งแอดมินให้ตรวจสอบโค้ดจุดนี้)");
     }
     return ContentService.createTextOutput("Error: " + err.message);
+  } finally {
+    // 🔓 สำคัญมาก: คืนสิทธิ์ Lock เสมอเมื่อจบการทำงาน เพื่อป้องกันไม่ให้ระบบบล็อกคิวพนักงานคนอื่นๆ 
+    lock.releaseLock();
   }
 }
 
-async function handleClockIn(msg, userId, token) {
+function handleClockIn(msg, userId, token) {
+  // 1. ล็อกระบบป้องกันข้อมูลชนกัน (Concurrency Control)
   const lock = LockService.getScriptLock();
   try {
+    // รอคิวสูงสุด 30 วินาที
     lock.waitLock(30000);
   } catch (e) {
-    reply(token, "⚠️ ระบบยุ่งอยู่ กรุณาส่งซ้ำครับ");
+    reply(token, "⚠️ ระบบกำลังประมวลผลคิวอื่นอยู่ กรุณารอสักครู่แล้วส่งใหม่ครับ");
     return;
   }
-  try {
-    let data = parseComplexMessage(msg);
-    const cache = CacheService.getScriptCache();
-    const pendingCodes = cache.get(`PENDING_IMG_CODES_${userId}`);
 
-    // 🧠 ระบบ Hybrid Fallback ถ้าแมนนวล Regex แกะไม่ออก โยนให้ AI
-    const isOtNoonMissed = /(OT|โอที)\s*เที่ยง/i.test(msg) && (!data || !data.employees.some(emp => emp.has_ot_noon));
-    if (!data || !data.date || !data.default_site || isOtNoonMissed) {
-      data = await processMessageWithAI(msg);
-      if (data) {
-        const countMatch = msg.match(/ทั้งหมด\s*(\d+)\s*คน/);
-        if (countMatch) data.expected_count = parseInt(countMatch[1], 10);
-        const matchOT = msg.match(/(OT|โอที)\s*เที่ยง\s*(?:(\d{1,2}[.:]\d{2})\s*[-ถึง]\s*(\d{1,2}[.:]\d{2}))?/i);
-        if (matchOT) {
-          data.has_ot_noon = true;
-          if (matchOT[2] && matchOT[3]) {
-            data.ot_noon_in = matchOT[2].replace(':', '.');
-            data.ot_noon_out = matchOT[3].replace(':', '.');
+  // 🚨 ครอบ try...finally เพื่อบังคับปลด Lock เสมอ ป้องกัน "ระบบค้างถาวร"
+  try {
+    let data;
+    let cache;
+    let pendingCodes;
+
+    // 2. ประมวลผลข้อความเบื้องต้น
+    try {
+      data = parseComplexMessage(msg);
+      cache = CacheService.getScriptCache();
+      pendingCodes = cache.get(`PENDING_IMG_CODES_${userId}`);
+
+      // 🧠 ระบบ Hybrid Fallback: ถ้า Regex อ่านไม่ออก ให้โยนไปให้ AI ช่วยแกะ
+      const isOtNoonMissed = /(OT|โอที)\s*เที่ยง/i.test(msg) && (!data || !data.employees || !data.employees.some(emp => emp.has_ot_noon));
+      
+      if (!data || !data.date || !data.default_site || isOtNoonMissed) {
+        // ตัด async/await ออก เพื่อให้รันใน GAS ได้อย่างถูกต้องและไม่เกิด Syntax Error
+        data = processMessageWithAI(msg); 
+        if (data) {
+          const countMatch = msg.match(/ทั้งหมด\s*(\d+)\s*คน/);
+          if (countMatch) data.expected_count = parseInt(countMatch[1], 10);
+          
+          const matchOT = msg.match(/(OT|โอที)\s*เที่ยง\s*(?:(\d{1,2}[.:]\d{2})\s*[-ถึง]\s*(\d{1,2}[.:]\d{2}))?/i);
+          if (matchOT) {
+            data.has_ot_noon = true;
+            if (matchOT[2] && matchOT[3]) {
+              data.ot_noon_in = matchOT[2].replace(':', '.');
+              data.ot_noon_out = matchOT[3].replace(':', '.');
+            }
           }
         }
       }
+    } catch (err) {
+      logErrorToSheet(null, msg, "Error parsing message: " + err.message);
+      reply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบครับ");
+      return; 
     }
 
+    // 3. จัดการข้อมูลกรณีส่งรูปภาพมาก่อนหน้า (จาก Cache)
     if (pendingCodes && data) {
       const empList = getEmployeesByCodes(JSON.parse(pendingCodes));
       if (data.expected_count && data.expected_count > 0 && empList.length !== data.expected_count) {
-        reply(token, `⚠️ ความผิดปกติ!\nคุณพิมพ์แจ้ง "ทั้งหมด ${data.expected_count} คน"\nแต่ระบบดึงรหัสจากรูปได้ "${empList.length} คน"\n👉 รบกวนถ่ายรูปใหม่ครับ`);
+        reply(token, `⚠️ จำนวนพนักงานไม่ตรงกัน!\nคุณพิมพ์แจ้ง: "${data.expected_count} คน"\nระบบอ่านจากรูปได้: "${empList.length} คน"\n👉 รบกวนตรวจสอบและส่งรูปใหม่ครับ`);
         cache.remove(`PENDING_IMG_CODES_${userId}`);
         return;
       }
@@ -259,28 +316,49 @@ async function handleClockIn(msg, userId, token) {
       }
     }
 
+    // 4. ตรวจสอบความสมบูรณ์ของข้อมูลขั้นสุดท้าย
     if (!data || !data.date || !data.employees || data.employees.length === 0) {
       logErrorToSheet(getTargetFileIdByDate(null), msg, "❌ ไม่พบรายชื่อพนักงาน");
-      reply(token, "❌ ข้อมูลไม่ครบครับ!\nหากลงเวลาแบบไม่พิมพ์ชื่อ กรุณาส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ");
+      reply(token, "❌ ข้อมูลไม่ครบครับ!\nหากต้องการลงเวลาโดยไม่พิมพ์ชื่อ โปรดส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ");
       return;
     }
 
     data.original_msg = msg;
     const check = checkDate(data.date);
     
-    // ดึงลิสต์ Admin เพื่อตรวจสอบการ Bypass วันที่
-    const adminIdStr = getDynamicConfig("ADMIN_LINE_ID");
-    const adminArray = (adminIdStr || "").split(",").map(id => id.trim());
-    const isUserAdmin = adminArray.includes(userId) || isAdmin(userId);
+    // 5. ดึงลิสต์ Admin อย่างปลอดภัย (ป้องกัน Error หากไม่มีค่า)
+    const adminIdStr = PropertiesService.getScriptProperties().getProperty("ADMIN_LINE_IDS") || "";
+    const adminArray = adminIdStr.split(",").map(id => id.trim());
+    const isUserAdmin = adminArray.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
 
-    // ถ้าติด Block "และ" ไม่ใช่ Admin ถึงจะโดนเตะออก
+    // 6. เช็คการบล็อกวันที่ (Admin สามารถทะลุได้)
     if (check.status === "BLOCK" && !isUserAdmin) {
       reply(token, `⛔ ${check.msg}`);
-      return;
+      return; 
     }
 
-    await checkOTAndProceed(data, userId, token, check, getTargetFileIdByDate(data.date));
+    // 7. ดำเนินการบันทึกข้อมูลและตรวจสอบ OT (ลบ await ออกเพื่อให้เป็น Synchronous)
+    checkOTAndProceed(data, userId, token, check, getTargetFileIdByDate(data.date));
+
+    // 8. 🎯 ส่งข้อความยืนยันการบันทึกแบบแสดงรายชื่อ
+    if (typeof formatResponse === "function") {
+      const info = {
+        date: data.date,
+        time: (data.time_start && data.time_end) ? `${data.time_start}-${data.time_end}` : "ตามเวลาปกติ",
+        site: data.default_site,
+        // ใช้ Optional Chaining (?.) เพื่อป้องกัน Error หาก undefined
+        accom: data.employees[0]?.accom || data.default_Accom || "ไม่ได้ระบุ"
+      };
+      
+      const finalMsg = formatResponse(data.employees, info);
+      reply(token, finalMsg);
+    }
+
+  } catch (err) {
+    logErrorToSheet(null, msg, "Critical Error HandleClockIn: " + err.message);
+    reply(token, "🔴 ระบบขัดข้อง กรุณาแจ้ง Admin ครับ");
   } finally {
+    // 🛡️ ปลดล็อกเสมอ 100% (รับประกันว่าคิวต่อไปจะได้ทำงานแน่นอน ไม่มีการค้าง)
     lock.releaseLock();
   }
 }

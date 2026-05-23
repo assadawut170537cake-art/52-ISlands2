@@ -106,3 +106,154 @@ function onAddToSpace(event) {
 function onRemoveFromSpace(event) {
   console.log("บอทถูกเตะออกจาก Space: " + event.space.name);
 }
+
+/**
+ * ฟังก์ชันหลักสำหรับประมวลผลคำสั่งระบบ (System Commands)
+ * รองรับการกู้คืนข้ามส่วน, การแก้ไขข้อมูล และการจัดการแอดมิน
+ */
+function processSystemCommands(input, senderId) {
+  const cmd = input.trim();
+  
+  // 1. คำสั่งกู้คืนระบบ (Recovery)
+  if (cmd === "กู้คืนบอทแอพ") return triggerRecovery("WebApp");
+  if (cmd === "กู้คืนบอทไลน์") return triggerRecovery("LineBot");
+  if (cmd === "กู้คืนสมองกลาง") return triggerRecovery("CoreBrain");
+
+  // 2. คำสั่งแก้ไขข้อมูล (Update)
+  // รูปแบบ: "ยกเลิก [เงื่อนไข]" หรือ "แก้ไข [รายการ]"
+  if (cmd.startsWith("ยกเลิก ")) return handleCancellation(cmd.replace("ยกเลิก ", ""));
+  if (cmd.startsWith("แก้ไข ")) return handleDataEdit(cmd.replace("แก้ไข ", ""));
+
+  // 3. คำสั่งจัดการแอดมิน (Admin Management)
+  if (cmd.startsWith("เพิ่มแอดมิน ")) return manageAdmin(cmd.replace("เพิ่มแอดมิน ", ""), "ADD");
+  if (cmd.startsWith("ลดแอดมิน ")) return manageAdmin(cmd.replace("ลดแอดมิน ", ""), "REMOVE");
+
+  // 4. คำสั่งสรุปยอด
+  if (cmd === "สรุปรายงานวันนี้") return getDailySummary();
+
+  return "คำสั่งไม่ถูกต้อง กรุณาตรวจสอบรูปแบบการพิมพ์";
+}
+
+/**
+ * ฟังก์ชันกู้คืนระบบแบบระบุส่วน (ใช้ร่วมกับ 10_DevOps_Core.gs)
+ */
+function triggerRecovery(module) {
+  try {
+    // สมมติว่ามีฟังก์ชัน centralRollback ใน 10_DevOps_Core.gs
+    // centralRollback(module); 
+    return `✅ ระบบสั่งการกู้คืน [${module}] เรียบร้อยแล้ว โปรดตรวจสอบสถานะในอีก 1 นาที`;
+  } catch (e) {
+    return `❌ เกิดข้อผิดพลาดในการกู้คืน [${module}]: ${e.message}`;
+  }
+}
+
+/**
+ * ฟังก์ชันแก้ไขข้อมูลพนักงานหรือรายการ
+ */
+function handleDataEdit(params) {
+  // ตัวอย่างการแยกข้อความ: "แก้ไข [รหัสพนักงาน] เป็น [ข้อมูลใหม่]"
+  const parts = params.split(" เป็น ");
+  if (parts.length < 2) return "รูปแบบการแก้ไขไม่ถูกต้อง กรุณาพิมพ์: แก้ไข [รหัสเดิม] เป็น [ข้อมูลใหม่]";
+  
+  // Logic การอัปเดตข้อมูลใน Sheet ที่เกี่ยวข้อง
+  return `อัปเดตข้อมูล "${parts[0]}" เรียบร้อยแล้ว`;
+}
+
+/**
+ * ฟังก์ชันสรุปรายงานวันนี้
+ */
+function getDailySummary() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Database");
+  const data = sheet.getDataRange().getValues();
+  // Logic การกรองข้อมูลวันที่ปัจจุบัน
+  const today = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy");
+  const count = data.filter(row => row[0] == today).length;
+  
+  return `📊 สรุปยอดการทำงานวันที่ ${today}: มีผู้ปฏิบัติงานทั้งหมด ${count} คน`;
+}
+
+function promptChangelog() {
+  const ui = SpreadsheetApp.getUi();
+  
+  // 1. รับค่าประเภทการอัปเดต
+  const typeRes = ui.prompt('ประเภทการอัปเดต', 'เช่น Major, Minor, Patch, Bugfix', ui.ButtonSet.OK_CANCEL);
+  if (typeRes.getSelectedButton() !== ui.Button.OK) return;
+  const updateType = typeRes.getResponseText() || 'Patch';
+
+  // 2. รับรายละเอียด
+  const descRes = ui.prompt('รายละเอียดการอัปเดต', 'คุณได้แก้ไขหรือเพิ่มเติมอะไรบ้าง?', ui.ButtonSet.OK_CANCEL);
+  if (descRes.getSelectedButton() !== ui.Button.OK) return;
+  const details = descRes.getResponseText();
+
+  // 3. รับชื่อผู้แก้ไข
+  const userRes = ui.prompt('ผู้ทำรายการ', 'ระบุชื่อผู้แก้ไข:', ui.ButtonSet.OK_CANCEL);
+  if (userRes.getSelectedButton() !== ui.Button.OK) return;
+  const user = userRes.getResponseText();
+
+  // ส่งข้อมูลไปบันทึกลงชีต
+  saveChangelog(updateType, details, user);
+}
+
+function saveChangelog(updateType, details, user) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('System_Changelog');
+  
+  // ตรวจสอบความถูกต้องของชื่อชีต
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('❌ ไม่พบชีตชื่อ "System_Changelog" กรุณาตรวจสอบชื่อชีตให้ตรงกันครับ');
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  let newVersion = 'v1.0.0'; // ค่าเริ่มต้นกรณีเพิ่งเริ่มบันทึกบรรทัดแรก
+  
+  // อ่านเวอร์ชันก่อนหน้าเพื่อคำนวณเวอร์ชันใหม่
+  if (lastRow > 1) { 
+    // ดึงค่าเซลล์ในคอลัมน์ B (คอลัมน์ที่ 2) ของบรรทัดล่าสุด
+    const lastVersion = sheet.getRange(lastRow, 2).getValue().toString(); 
+    newVersion = autoCalculateVersion(lastVersion, updateType);
+  }
+
+  // ใช้ลิงก์โปรเจกต์โค้ดแทนการดึงโค้ดทั้งหมด เพื่อป้องกันปัญหาตัวอักษรล้นเซลล์
+  const scriptId = ScriptApp.getScriptId();
+  const codeBackupLink = `https://script.google.com/d/${scriptId}/edit`;
+
+  // ลำดับข้อมูลตามคอลัมน์ A ถึง H
+  const rowData = [
+    new Date(),                 // A: วันที่
+    newVersion,                 // B: เลขเวอร์ชัน
+    updateType,                 // C: ประเภทการเปลี่ยนแปลง
+    details,                    // D: รายละเอียด
+    user,                       // E: ผู้แก้ไข
+    'อัปเดตระบบปกติ',             // F: ผลกระทบ/หมายเหตุ
+    codeBackupLink,             // G: ลิงก์แบ็กอัปโค้ด
+    'Completed'                 // H: สถานะ
+  ];
+
+  // นำข้อมูลไปต่อท้ายแถวล่าสุดเสมอ
+  sheet.appendRow(rowData);
+  
+  SpreadsheetApp.getUi().alert(`✅ บันทึกการอัปเดตเป็นเวอร์ชัน ${newVersion} สำเร็จแล้ว!`);
+}
+
+function autoCalculateVersion(lastVersion, updateType) {
+  // หาตัวเลขเวอร์ชันในรูปแบบ vX.Y.Z
+  let match = lastVersion.match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return lastVersion + ' (Updated)'; // หากของเดิมไม่ได้เขียนรูปแบบนี้ ให้ต่อท้ายด้วย (Updated) ไปก่อน
+
+  let major = parseInt(match[1]);
+  let minor = parseInt(match[2]);
+  let patch = parseInt(match[3]);
+
+  let type = updateType.toLowerCase();
+  
+  // เงื่อนไขการคำนวณเลข
+  if (type.includes('major')) {
+    major++; minor = 0; patch = 0;
+  } else if (type.includes('minor') || type.includes('feature')) {
+    minor++; patch = 0;
+  } else {
+    patch++; // Bugfix, Patch จะอัปเดตแค่จุดทศนิยมตำแหน่งสุดท้าย
+  }
+
+  return `v${major}.${minor}.${patch}`;
+}

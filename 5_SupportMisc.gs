@@ -138,3 +138,72 @@ function callGeminiText(userText) {
 }
 
 function asyncLog(data) { console.log(data); }
+
+/**
+ * จัดรูปแบบข้อความตอบกลับ LINE ให้สวยงามและเป็นระเบียบ
+ * @param {Array} staffList - Array ของรายชื่อพนักงาน
+ * @param {Object} info - ข้อมูลอื่นๆ (date, time, site, accom)
+ */
+function formatResponse(staffList, info) {
+  const count = staffList.length;
+  const dateStr = info.date || "วันนี้";
+  const timeStr = info.time || "กำลังรอการแจ้งเวลา";
+  const siteStr = info.site || "กำลังรอแจ้ง";
+  const accomStr = info.accom || "กำลังรอแจ้ง";
+  
+  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n`;
+  msg += `📅 วันที่: ${dateStr}\n`;
+  msg += `(เวลา: ${timeStr})\n`;
+  msg += `ไซต์: ${siteStr}\n`;
+  msg += `[ที่พัก: ${accomStr}]\n`;
+  
+  // สร้าง List รายชื่อ
+  staffList.forEach((staff, index) => {
+    // รองรับทั้งแบบ string ธรรมดา หรือ object {firstname: '...'}
+    const name = (typeof staff === 'object') ? (staff.firstname + (staff.lastname ? " " + staff.lastname : "")) : staff;
+    msg += `${index + 1}. ${name}\n`;
+  });
+  
+  msg += `\n📌 โปรดพิมพ์รายละเอียดงานเพื่อบันทึกต่อได้เลยครับ`;
+  return msg;
+}
+
+/**
+ * ฟังก์ชันจัดรูปแบบข้อความตอบกลับ LINE (Formatting Engine)
+ * - รองรับข้อมูลพนักงานทั้งแบบ Array ของชื่อ (String) หรือ Array ของ Object
+ * - รองรับการป้องกันค่าว่าง (Null Safety)
+ */
+function formatResponse(staffList, info) {
+  // 1. คำนวณจำนวนพนักงาน
+  const count = staffList ? staffList.length : 0;
+  
+  // 2. จัดเตรียมข้อมูลพื้นฐาน (ใช้ค่าเริ่มต้นถ้าไม่มีข้อมูล)
+  const dateStr = info.date || "วันนี้";
+  const timeStr = info.time || "กำลังรอการแจ้งเวลา";
+  const siteStr = info.site || "กำลังรอแจ้ง";
+  const accomStr = info.accom || "ไม่ได้ระบุ";
+  
+  // 3. เริ่มต้นสร้างข้อความ
+  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n`;
+  msg += `📅 วันที่: ${dateStr}\n`;
+  msg += `(เวลา: ${timeStr})\n`;
+  msg += `ไซต์: ${siteStr}\n`;
+  msg += `[ที่พัก: ${accomStr}]\n`;
+  
+  // 4. วนลูปรายชื่อพนักงาน
+  if (count > 0) {
+    staffList.forEach((staff, index) => {
+      // ตรวจสอบว่าพนักงานเป็น Object หรือ String
+      const name = (typeof staff === 'object') 
+        ? `${staff.firstname || ""} ${staff.lastname || ""}`.trim() 
+        : staff;
+      
+      msg += `${index + 1}. ${name}\n`;
+    });
+  } else {
+    msg += `(ไม่พบรายชื่อในรายการ)\n`;
+  }
+  
+  msg += `\n📌 โปรดพิมพ์รายละเอียดงานเพื่อบันทึกต่อได้เลยครับ`;
+  return msg;
+}

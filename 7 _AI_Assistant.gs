@@ -8,58 +8,84 @@
  */
 function processUserChat(prompt, userId, replyToken) {
   try {
+    // 1. เตรียม Config และสถานะ Admin
     var props = PropertiesService.getScriptProperties();
-    // ส่วนนี้ปรับเปลี่ยนตามโครงสร้างที่คุณใช้ในไฟล์หลัก
     var adminIds = (getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
     var isAdmin = userId && adminIds.indexOf(userId) !== -1;
 
+    // 2. จัดการทางลัด Admin
     if (prompt.trim() === "กู้คืนระบบ" || prompt.toLowerCase() === "rollback") {
       var rollbackResult = rollbackLogic(userId, 1);
       return { success: rollbackResult.success, text: rollbackResult.success ? rollbackResult.message : rollbackResult.error };
     }
 
-    var validNames = typeof getValidNamesForAI === "function" ? getValidNamesForAI() : "";
+    // 3. ดึงข้อมูลที่จำเป็น (ย้ายมาไว้ข้างบนเพื่อความถูกต้อง)
+    var validNames = typeof getValidNamesForAI === "function" ? getValidNamesForAI() : [];
     var currentLogic = getCurrentLogic();
+    var dateToday = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
 
-    var systemInstruction = typeof getDynamicPrompt === "function" 
-      ? getDynamicPrompt('BOT') 
-      : `คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System\nรายชื่อพนักงานในระบบปัจจุบัน: ${validNames}\nตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}\n\nหน้าที่และวิธีการตอบกลับ:\n1. แนะนำการใช้งาน (Guide): หากผู้ใช้ถามวิธีใช้แอป ให้ตอบอธิบายสั้น กระชับ สุภาพ สไตล์พี่สอนน้อง เป็นข้อๆ\n2. บันทึกงาน (Natural Language Input): หากผู้ใช้สั่งงานด้วยภาษาทั่วไป ให้แปลงเป็นโครงสร้าง JSON นี้เท่านั้น:\n {"type":"SAVE", "payload": {"date":"YYYY-MM-DD", "default_site":"ชื่อไซต์", "time_start":"08.00", "time_end":"17.00", "employees":[{"firstname":"ชื่อพนักงาน","task":"ลักษณะงาน"}]}}\n *กฎล็อกย้อนหลัง:* ตรรกะปัจจุบันยอมให้บันทึกย้อนหลังได้ ${currentLogic.backdate_limit} วัน (สถานะผู้ใช้ปัจจุบันคือ Admin: ${isAdmin})\n3. อัปเดตตรรกะระบบ: หากแอดมินสั่งปรับเปลี่ยนกฎเกณฑ์ ให้ตอบกลับเป็น JSON นี้เท่านั้น:\n {"type":"UPDATE_LOGIC", "new_logic": {"backdate_limit": 3}} \n *กฎเหล็ก:* จำกัดสิทธิ์เฉพาะ Admin เท่านั้น\n\nสรุปใจความสำคัญไว้บรรทัดแรกเสมอ ใช้ภาษาสุภาพ เป็นกันเอง`;
+    // 4. สร้าง System Instruction พร้อมคำสั่งบังคับ Format
+    var baseInstruction = typeof getDynamicPrompt === "function" ? getDynamicPrompt('BOT') : "คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System";
+    
+    var systemInstruction = `${baseInstruction}
+    สถานะผู้ใช้: ${isAdmin ? "ADMIN" : "พนักงานทั่วไป"}
+    รายชื่อพนักงาน: ${JSON.stringify(validNames)}
+    กฎระบบปัจจุบัน: ${JSON.stringify(currentLogic)}
 
+    หน้าที่การตอบกลับ:
+    1. หากผู้ใช้แจ้งข้อมูลพนักงาน ให้สรุปผลในรูปแบบนี้เสมอ:
+       ✅ ตรวจพบพนักงาน [X] คน
+       📅 วันที่: ${dateToday}
+       (เวลา: ...)
+       ไซต์: ...
+       [ที่พัก: ...]
+       1. [ชื่อ]
+       2. [ชื่อ]
+       📌 โปรดพิมพ์รายละเอียดงานเพื่อบันทึกต่อได้เลยครับ
+    
+    2. หากผู้ใช้สั่ง "บันทึก" ให้แปลงเป็น JSON เท่านั้น:
+       {"type":"SAVE", "payload": {"date":"YYYY-MM-DD", "default_site":"ชื่อไซต์", "time_start":"08.00", "time_end":"17.00", "employees":[{"firstname":"ชื่อ","task":"ลักษณะงาน"}]}}
+       
+    3. หากเป็นคำถามทั่วไป ตอบให้สุภาพ กระชับ เป็นกันเอง`;
+
+    // 5. เรียกใช้ Gemini
     if (typeof callGemini !== "function") return { success: false, text: "⚠️ ไม่พบตัวซิงค์เชื่อมต่อโมเดลสารพัดประโยชน์ (callGemini)" };
     
     var aiRawText = callGemini(prompt, systemInstruction, false);
     if (!aiRawText) return { success: false, text: "⚠️ ไม่สามารถติดต่อสมอง AI ได้ในขณะนี้ครับ" };
 
-    var cleanJsonStr = aiRawText.replace(new RegExp("\\x60\\x60\\x60(?:json)?", "gi"), "").replace(new RegExp("\\x60\\x60\\x60", "g"), "").trim();
+    // 6. ประมวลผลผลลัพธ์
+    var cleanJsonStr = aiRawText.replace(/```json/gi, "").replace(/```/g, "").trim();
     var data;
     try {
       data = JSON.parse(cleanJsonStr);
     } catch(e) {
+      // ถ้าไม่ใช่ JSON แสดงว่า AI ตอบเป็นข้อความปกติ
       return { success: true, text: aiRawText };
     }
 
+    // 7. Branch: SAVE
     if (data.type === "SAVE") {
+      var entryDate = new Date(data.payload.date);
       var today = new Date(); today.setHours(0,0,0,0);
-      var entryDate = new Date(data.payload.date); entryDate.setHours(0,0,0,0);
       var diffDays = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
-      var allowedDays = currentLogic.backdate_limit;
       
-      if (diffDays > allowedDays && !isAdmin) {
-        logAuditTrail(userId, "SAVE_DENIED", prompt, JSON.stringify(data.payload), 0.0, "REJECT", "Gating blocked via Chat input branch");
-        return { success: false, text: `❌ ไม่สามารถลงข้อมูลย้อนหลังเกิน ${ allowedDays } วันได้ครับ (จำกัดสิทธิ์เฉพาะ Admin)` };
+      if (diffDays > currentLogic.backdate_limit && !isAdmin) {
+        logAuditTrail(userId, "SAVE_DENIED", prompt, JSON.stringify(data.payload), 0.0, "REJECT", "Gating blocked");
+        return { success: false, text: `❌ ไม่สามารถลงข้อมูลย้อนหลังเกิน ${currentLogic.backdate_limit} วันครับ (จำกัดสิทธิ์ Admin)` };
       }
       
       if (typeof handleClockIn === "function") {
-          handleClockIn(`#${data.payload.date}\n${data.payload.default_site} เข้า ${data.payload.default_site}\n${data.payload.time_start}-${data.payload.time_end}\n${data.payload.employees.map((e,i) => `${i+1}.${e.firstname} / ${e.task}`).join('\n')}`, userId, replyToken);
-      } else {
-        throw new Error("ระบบไม่พร้อมทำงาน (ขาดฟังก์ชัน handleClockIn)");
+        var staffStr = data.payload.employees.map((e,i) => `${i+1}.${e.firstname} / ${e.task}`).join('\n');
+        handleClockIn(`#${data.payload.date}\n${data.payload.default_site}\n${data.payload.time_start}-${data.payload.time_end}\n${staffStr}`, userId, replyToken);
       }
       return { success: true, text: null }; 
     }
 
+    // 8. Branch: UPDATE_LOGIC
     if (data.type === "UPDATE_LOGIC") {
-      if (!isAdmin) return { success: false, text: "🔒 ขออภัยครับ สิทธิ์การเปลี่ยนกฎระบบจำกัดเฉพาะ Admin ครับ" };
-      var updateResult = updateLogic(JSON.stringify(data.new_logic), "Admin", "อัปเดตระบบผ่านแชท");
+      if (!isAdmin) return { success: false, text: "🔒 สิทธิ์เปลี่ยนกฎระบบจำกัดเฉพาะ Admin ครับ" };
+      var updateResult = updateLogic(JSON.stringify(data.new_logic), "Admin", "อัปเดตผ่านแชท");
       return { success: updateResult.success, text: updateResult.success ? updateResult.message : "⚠️ " + updateResult.error };
     }
 
@@ -70,7 +96,6 @@ function processUserChat(prompt, userId, replyToken) {
     if (typeof logErrorToSheet === "function") {
       logErrorToSheet(dbId, prompt, "AI_Assistant Error: " + err.message);
     }
-    // สามารถเพิ่ม notifyAdminOnError("AI_Assistant Error", err.message) ตรงนี้ได้ครับ
     return { success: false, text: "🔴 เกิดข้อผิดพลาดในระบบสมองกล: " + err.message };
   }
 }
@@ -185,6 +210,8 @@ function logAuditTrail(userId, actionType, inputRaw, machineStructured, confiden
   try {
     var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
     if (!dbId) return;
+    
+    // ดึง Spreadsheet จาก Cache ถ้ามี หรือเปิดใหม่
     var ss = typeof getCachedSpreadsheet === 'function' ? getCachedSpreadsheet(dbId) : SpreadsheetApp.openById(dbId);
     var sheet = ss.getSheetByName("Audit_Log") || ss.insertSheet("Audit_Log");
     
@@ -200,7 +227,7 @@ function logAuditTrail(userId, actionType, inputRaw, machineStructured, confiden
       actionType,
       inputRaw || "",
       machineStructured || "",
-      confidence || 0.0,
+      confidence || 1.0,
       userAction || "",
       executionMessage || ""
     ]);
@@ -310,4 +337,53 @@ function getProjectSourceCode() {
     console.error("getProjectSourceCode Error: " + e.message);
     return `❌ ไม่สามารถอ่านโค้ดของโปรเจกต์ได้เนื่องจาก: ${e.message}`;
   }
+}
+
+/**
+ * ฟังก์ชันสำหรับเรียกใช้งาน Gemini API
+ * @param {string} prompt ข้อความที่ต้องการให้ AI ตอบ
+ * @param {string} systemInstruction คำสั่งพื้นฐาน (System Prompt)
+ * @param {boolean} isJson ต้องการผลลัพธ์เป็น JSON หรือไม่
+ */
+function callGemini(prompt, systemInstruction, isJson) {
+  try {
+    const apiKey = getDynamicConfig("GEMINI_API_KEY_WEB"); // ดึง API Key จาก config
+    const model = getDynamicConfig("MODEL_NAME") || "gemini-1.5-flash"; // ใช้ model จาก config
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const payload = {
+      "contents": [{
+        "parts": [{ "text": systemInstruction + "\n\nUser: " + prompt }]
+      }],
+      "generationConfig": {
+        "responseMimeType": isJson ? "application/json" : "text/plain"
+      }
+    };
+
+    const options = {
+      "method": "post",
+      "contentType": "application/json",
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    const result = JSON.parse(response.getContentText());
+
+    if (result.candidates && result.candidates[0].content.parts[0].text) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      console.error("Gemini Error:", result);
+      return null;
+    }
+  } catch (e) {
+    console.error("Call Gemini Exception: " + e.message);
+    return null;
+  }
+}
+
+/** ฟังก์ชันตรวจสอบสิทธิ์ Admin ส่วนกลาง */
+function checkIsAdmin(userId) {
+  const adminIds = (getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(s => s.trim());
+  return adminIds.includes(userId);
 }

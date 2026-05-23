@@ -11,14 +11,6 @@ function doGet(e) {
 // =================================================================
 // 2_WebApp.gs (ระบบ Web Dashboard และ Spreadsheet UI)
 // =================================================================
-
-function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('Interactive_Manual')
-      .setTitle('คู่มือ Smart Worksite')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-}
-
 /**
  * 🔗 API สำหรับให้ Web App ในอนาคตเรียกใช้ตั้งค่าระบบ
  */

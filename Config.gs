@@ -1,9 +1,9 @@
 const GLOBAL_CONFIG = {
-  "LINE_CHANNEL_ACCESS_TOKEN": "aCJiOsgUtbu2zPgCbasYDrD3i+xpKECn6df3EyjftMdpoIAQilk752gF5ENWe29TyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDXaEXXxb3l3fsgibktpr7Pj0ON5dlVYrQPbZM/HmLXLxgdB04t89/1O/w1cDnyilFU=",
+  "LINE_CHANNEL_ACCESS_TOKEN": "Yk/bGA3NaIdbw0dT71oZXfSxgKSxTZXuz9ImKQZhKYhGYHMUww79Rrc6dAkqnRyGyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDVlC880rCPIIHmRaBGK6Wanh5Wtgq49kgkR7EwziwkTAwdB04t89/1O/w1cDnyilFU=",
   "GEMINI_API_KEY_LINE": "AIzaSyDnOFKdSpstDLXg6NQbxA7-mG6lMbR1-w4",
   "GEMINI_API_KEY_WEB": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
   "MODEL_NAME": "gemini-2.5-flash",
-  "ADMIN_LINE_IDS": ["U19fc3f88a0ae90bfb047e362b60e2493", "Uc0c4b4e9e5159a37b38fa5ac9c619c1e"],
+  "ADMIN_LINE_IDS": "U19fc3f88a0ae90bfb047e362b60e2493",
   "SYSTEM_STATUS": "ON",
   "IS_TESTING": "FALSE",
   "BACKDATE_LIMIT": 2,
@@ -88,7 +88,9 @@ const MONTHLY_FILE_IDS = [
 ];
 
 function checkAdminStatus() {
-  const myUserId = "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e"; // นำ User ID ของคุณมาใส่ที่นี่
+  // แก้ไขตรงนี้: ใส่ ID ของคุณแค่ตัวเดียว (เลือกอันใดอันหนึ่ง)
+  const myUserId = "U19fc3f88a0ae90bfb047e362b60e2493"; 
+  
   const adminIds = (getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(s => s.trim()).filter(Boolean);
   
   const isAdmin = adminIds.includes(myUserId);
@@ -96,6 +98,7 @@ function checkAdminStatus() {
   Logger.log("Admin IDs ในระบบ: " + JSON.stringify(adminIds));
   Logger.log("สถานะ User ของคุณ (" + myUserId + "): " + (isAdmin ? "✅ คุณคือ Admin" : "❌ คุณไม่ใช่ Admin"));
 }
+
 function fixAdminIdsProperties() {
   const cleanIds = "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e";
   
@@ -138,7 +141,7 @@ function forceCleanAdminIds() {
   // 2. ถ้าคุณใช้ Google Sheet เก็บค่า (สังเกตจาก log ว่ามีการดึงค่าจาก Sheet)
   // ให้ลองรันคำสั่งนี้เพื่อเปลี่ยนค่าใน Sheet ตรงๆ
   // **หมายเหตุ: แก้ไขชื่อ 'Config' เป็นชื่อชีตของคุณนะครับ**
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config'); 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config.gs'); 
   if (sheet) {
     const range = sheet.getDataRange();
     const values = range.getValues();
@@ -151,6 +154,6 @@ function forceCleanAdminIds() {
       }
     }
   } else {
-    Logger.log("⚠️ ไม่พบชีตชื่อ 'Config' (ถ้าคุณใช้ชื่ออื่น รบกวนบอกชื่อชีตครับ)");
+    Logger.log("⚠️ ไม่พบชีตชื่อ 'Config.gs' (ถ้าคุณใช้ชื่ออื่น รบกวนบอกชื่อชีตครับ)");
   }
 }
