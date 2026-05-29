@@ -23,6 +23,21 @@
         "userSymbol": "Chat",
         "serviceId": "chat",
         "version": "v1"
+      },
+      {
+        "userSymbol": "AdminGroupsSettings",
+        "version": "v1",
+        "serviceId": "groupssettings"
+      },
+      {
+        "userSymbol": "People",
+        "version": "v1",
+        "serviceId": "peopleapi"
+      },
+      {
+        "userSymbol": "VertexAI",
+        "version": "v1",
+        "serviceId": "aiplatform"
       }
     ]
   },

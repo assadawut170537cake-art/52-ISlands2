@@ -139,71 +139,85 @@ function callGeminiText(userText) {
 
 function asyncLog(data) { console.log(data); }
 
-/**
- * จัดรูปแบบข้อความตอบกลับ LINE ให้สวยงามและเป็นระเบียบ
- * @param {Array} staffList - Array ของรายชื่อพนักงาน
- * @param {Object} info - ข้อมูลอื่นๆ (date, time, site, accom)
- */
-function formatResponse(staffList, info) {
-  const count = staffList.length;
-  const dateStr = info.date || "วันนี้";
-  const timeStr = info.time || "กำลังรอการแจ้งเวลา";
-  const siteStr = info.site || "กำลังรอแจ้ง";
-  const accomStr = info.accom || "กำลังรอแจ้ง";
+// =================================================================
+// 🔍 DATA HANDLER & FLEXIBLE NAME MATCHING
+// =================================================================
+function getEmployeeDataFromSheet() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get("EMPLOYEE_DATA");
+  if (cached) return JSON.parse(cached);
   
-  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n`;
-  msg += `📅 วันที่: ${dateStr}\n`;
-  msg += `(เวลา: ${timeStr})\n`;
-  msg += `ไซต์: ${siteStr}\n`;
-  msg += `[ที่พัก: ${accomStr}]\n`;
+  const empData = [];
+  try {
+    // ใช้วิธี DevOps Guard: ดึง ID ไฟล์ DATA จาก Config (ใส่ Fallback ป้องกันระบบล่ม)
+    const fileId = (typeof getDynamicConfig === 'function' ? getDynamicConfig("DATA_FILE_ID") : null) 
+                   || "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk"; 
+    
+    const ss = SpreadsheetApp.openById(fileId);
+    const sheet = ss.getSheetByName("รายชื่อพนักงาน");
+    
+    if (sheet) {
+      // ดึง A2:K เพื่อให้ครอบคลุมคอลัมน์ Name (C), Full_Name (E), Residence (J), Status (K)
+      const data = sheet.getRange("A2:K").getValues(); 
+      data.forEach(row => {
+        const shortName = row[2] ? row[2].toString().trim() : ""; // คอลัมน์ C (Index 2)
+        const fullName = row[4] ? row[4].toString().trim() : "";  // คอลัมน์ E (Index 4)
+        const residence = row[9] ? row[9].toString().trim() : "ไม่ระบุ"; // คอลัมน์ J (Index 9)
+        const status = row[10] ? row[10].toString().trim() : "";  // คอลัมน์ K (Index 10)
+        
+        if (shortName && (status === "ปกติ" || status === "ทำงาน" || status === "")) {
+          empData.push({ shortName: shortName, fullName: fullName, accom: residence });
+        }
+      });
+    }
+  } catch(e) { logSystemEvent("ERROR", "getEmployeeDataFromSheet", e.message); }
   
-  // สร้าง List รายชื่อ
-  staffList.forEach((staff, index) => {
-    // รองรับทั้งแบบ string ธรรมดา หรือ object {firstname: '...'}
-    const name = (typeof staff === 'object') ? (staff.firstname + (staff.lastname ? " " + staff.lastname : "")) : staff;
-    msg += `${index + 1}. ${name}\n`;
-  });
-  
-  msg += `\n📌 โปรดพิมพ์รายละเอียดงานเพื่อบันทึกต่อได้เลยครับ`;
-  return msg;
+  if (empData.length > 0) cache.put("EMPLOYEE_DATA", JSON.stringify(empData), 3600);
+  return empData;
 }
 
-/**
- * ฟังก์ชันจัดรูปแบบข้อความตอบกลับ LINE (Formatting Engine)
- * - รองรับข้อมูลพนักงานทั้งแบบ Array ของชื่อ (String) หรือ Array ของ Object
- * - รองรับการป้องกันค่าว่าง (Null Safety)
- */
-function formatResponse(staffList, info) {
-  // 1. คำนวณจำนวนพนักงาน
-  const count = staffList ? staffList.length : 0;
+function extractEmployeesFromText(messageText) {
+  if (!messageText) return [];
+  const activeEmployees = getEmployeeDataFromSheet();
+  const foundEmployees = [];
   
-  // 2. จัดเตรียมข้อมูลพื้นฐาน (ใช้ค่าเริ่มต้นถ้าไม่มีข้อมูล)
+  activeEmployees.forEach(emp => {
+    // 1. เช็คจาก Full Name ก่อน
+    if (emp.fullName && messageText.includes(emp.fullName)) {
+      foundEmployees.push(emp);
+    } else {
+      // 2. เช็ค Short Name โดยใช้ Word Boundary ป้องกันการจับคู่ชื่อสั้นที่ซ้อนอยู่ในคำอื่น
+      const regex = new RegExp("(?:^|\\s)" + emp.shortName + "(?:\\s|$)", "i");
+      if (regex.test(messageText)) {
+        foundEmployees.push(emp);
+      }
+    }
+  });
+  
+  // ตัดรายชื่อที่ซ้ำกันออก (Unique Array)
+  return [...new Set(foundEmployees)];
+}
+
+function formatResponse(staffListObjects, info) {
+  const count = staffListObjects ? staffListObjects.length : 0;
   const dateStr = info.date || "วันนี้";
-  const timeStr = info.time || "กำลังรอการแจ้งเวลา";
-  const siteStr = info.site || "กำลังรอแจ้ง";
-  const accomStr = info.accom || "ไม่ได้ระบุ";
+  const timeStr = info.time || "รอแก้ไข";
+  const siteStr = info.site || "รอแก้ไข";
   
-  // 3. เริ่มต้นสร้างข้อความ
-  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n`;
-  msg += `📅 วันที่: ${dateStr}\n`;
-  msg += `(เวลา: ${timeStr})\n`;
-  msg += `ไซต์: ${siteStr}\n`;
-  msg += `[ที่พัก: ${accomStr}]\n`;
+  let accomStr = info.accom;
+  // ดึงที่พักของคนแรกมาเป็น Default อัตโนมัติ หากไม่มีการระบุมา
+  if (!accomStr && count > 0) accomStr = staffListObjects[0].accom;
+  accomStr = accomStr || "รอแก้ไข";
   
-  // 4. วนลูปรายชื่อพนักงาน
+  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n📅 วันที่: ${dateStr}\n(เวลา: ${timeStr})\nไซต์: ${siteStr}\n[ที่พัก: ${accomStr}]\n`;
+  
   if (count > 0) {
-    staffList.forEach((staff, index) => {
-      // ตรวจสอบว่าพนักงานเป็น Object หรือ String
-      const name = (typeof staff === 'object') 
-        ? `${staff.firstname || ""} ${staff.lastname || ""}`.trim() 
-        : staff;
-      
-      msg += `${index + 1}. ${name}\n`;
+    staffListObjects.forEach((staff, index) => {
+      msg += `${index + 1}. ${staff.fullName || staff.shortName}\n`;
     });
   } else {
     msg += `(ไม่พบรายชื่อในรายการ)\n`;
   }
-  
-  msg += `\n📌 โปรดพิมพ์รายละเอียดงานเพื่อบันทึกต่อได้เลยครับ`;
+  msg += `\n📌 สามารถก็อปปี้ข้อความนี้แล้ว เติมส่วนที่ขาดส่งกลับมาได้เลยครับ`;
   return msg;
 }

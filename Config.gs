@@ -1,4 +1,11 @@
-const GLOBAL_CONFIG = {
+// =================================================================
+// Config.gs (ศูนย์รวมการตั้งค่าหลักของระบบ)
+// =================================================================
+
+/**
+ * ⚠️ แก้ไขจาก const เป็น var เพื่อให้ไฟล์อื่นในโปรเจกต์สามารถเรียกใช้งานได้ (Global Scope)
+ */
+var GLOBAL_CONFIG = {
   "LINE_CHANNEL_ACCESS_TOKEN": "Yk/bGA3NaIdbw0dT71oZXfSxgKSxTZXuz9ImKQZhKYhGYHMUww79Rrc6dAkqnRyGyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDVlC880rCPIIHmRaBGK6Wanh5Wtgq49kgkR7EwziwkTAwdB04t89/1O/w1cDnyilFU=",
   "GEMINI_API_KEY_LINE": "AIzaSyDnOFKdSpstDLXg6NQbxA7-mG6lMbR1-w4",
   "GEMINI_API_KEY_WEB": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
@@ -29,24 +36,31 @@ const GLOBAL_CONFIG = {
 
 // ฟังก์ชันเช็ค Admin ที่แม่นยำที่สุด
 function isAdmin(userId) {
-  return GLOBAL_CONFIG.ADMIN_LINE_IDS.includes(userId);
+  if (!userId || typeof userId !== 'string') return false;
+  var adminConfig = getDynamicConfig("ADMIN_LINE_IDS") || GLOBAL_CONFIG.ADMIN_LINE_IDS;
+  return adminConfig.includes(userId);
 }
+
 /**
  * 📱 2. ระบบ Dynamic Config (Remote Settings)
  * ฟังก์ชันดึงค่าตั้งค่าที่รองรับการแก้ไขผ่าน ChatOps พร้อมระบบ Cache [9, 10]
  */
 function getDynamicConfig(key) {
-  const cache = CacheService.getScriptCache();
-  const cachedValue = cache.get(`CONFIG_${key}`);
-  
-  // 1. ตรวจสอบใน Cache ก่อนเพื่อความรวดเร็ว
-  if (cachedValue !== null) return cachedValue;
+  try {
+    const cache = CacheService.getScriptCache();
+    const cachedValue = cache.get("CONFIG_" + key);
+    
+    // 1. ตรวจสอบใน Cache ก่อนเพื่อความรวดเร็ว
+    if (cachedValue !== null) return cachedValue;
 
-  // 2. หากไม่มีใน Cache ให้ดูใน Script Properties (ที่แก้ผ่าน ChatOps)
-  const propValue = PropertiesService.getScriptProperties().getProperty(key);
-  if (propValue !== null) {
-    cache.put(`CONFIG_${key}`, propValue, 3600); // เก็บเข้า Cache 1 ชม.
-    return propValue;
+    // 2. หากไม่มีใน Cache ให้ดูใน Script Properties (ที่แก้ผ่าน ChatOps)
+    const propValue = PropertiesService.getScriptProperties().getProperty(key);
+    if (propValue !== null) {
+      cache.put("CONFIG_" + key, propValue, 3600); // เก็บเข้า Cache 1 ชม.
+      return propValue;
+    }
+  } catch (e) {
+    Logger.log("⚠️ getDynamicConfig Warning: " + e.message);
   }
 
   // 3. หากไม่มีทั้งคู่ ให้ใช้ค่าเริ่มต้นจาก GLOBAL_CONFIG
@@ -57,22 +71,27 @@ function getDynamicConfig(key) {
  * ⚙️ 3. ฟังก์ชันบันทึกการตั้งค่าใหม่ (เรียกใช้โดย ChatOps ใน 1_LineBot) [11]
  */
 function setDynamicConfig(key, value) {
-  const props = PropertiesService.getScriptProperties();
-  const cache = CacheService.getScriptCache();
-  
-  props.setProperty(key, value);
-  cache.put(`CONFIG_${key}`, value, 3600); // อัปเดต Cache ทันที
-  
-  // บันทึกประวัติการแก้ไขเพื่อความปลอดภัย (DevOps Log) [12, 13]
-  if (typeof logAuditTrail === "function") {
-    logAuditTrail("ADMIN", "UPDATE_CONFIG", key, value, 1.0, "SUCCESS", "Updated via ChatOps");
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const cache = CacheService.getScriptCache();
+    
+    props.setProperty(key, value);
+    cache.put("CONFIG_" + key, value, 3600); // อัปเดต Cache ทันที
+    
+    // บันทึกประวัติการแก้ไขเพื่อความปลอดภัย (DevOps Log) [12, 13]
+    if (typeof logAuditTrail === "function") {
+      logAuditTrail("ADMIN", "UPDATE_CONFIG", key, value, 1.0, "SUCCESS", "Updated via ChatOps");
+    }
+  } catch (e) {
+    Logger.log("⚠️ setDynamicConfig Error: " + e.message);
   }
 }
 
 /**
  * 📅 4. รายการ ID ไฟล์รายเดือน (ยึดตามระบบเดิม 12 เดือน) [14, 15]
+ * ⚠️ แก้ไขจาก const เป็น var เช่นเดียวกัน เพื่อให้ฟังก์ชันการตรวจสอบวันที่จากไฟล์อื่นมองเห็น
  */
-const MONTHLY_FILE_IDS = [
+var MONTHLY_FILE_IDS = [
   "1gmS6ZYD4xeO2PP7gu15yvApLaKuFa5tPrmDe-PtMOBk", // 01 ม.ค.
   "1Uly9KQFnQ5pQyDn9pHGbgelCmXgDLO4DRM846Vsr7EM", // 02 ก.พ.
   "1wwwbwFyDyoyZOQ_kkfvyrshfpGgi6wCRaPAHU3yXKbE", // 03 มี.ค.
@@ -88,25 +107,20 @@ const MONTHLY_FILE_IDS = [
 ];
 
 function checkAdminStatus() {
-  // แก้ไขตรงนี้: ใส่ ID ของคุณแค่ตัวเดียว (เลือกอันใดอันหนึ่ง)
   const myUserId = "U19fc3f88a0ae90bfb047e362b60e2493"; 
-  
-  const adminIds = (getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(s => s.trim()).filter(Boolean);
-  
-  const isAdmin = adminIds.includes(myUserId);
+  const configRaw = getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_LINE_ID") || "";
+  const adminIds = configRaw.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+  const isAdminStatus = adminIds.includes(myUserId);
   
   Logger.log("Admin IDs ในระบบ: " + JSON.stringify(adminIds));
-  Logger.log("สถานะ User ของคุณ (" + myUserId + "): " + (isAdmin ? "✅ คุณคือ Admin" : "❌ คุณไม่ใช่ Admin"));
+  Logger.log("สถานะ User ของคุณ (" + myUserId + "): " + (isAdminStatus ? "✅ คุณคือ Admin" : "❌ คุณไม่ใช่ Admin"));
 }
 
 function fixAdminIdsProperties() {
-  const cleanIds = "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e";
-  
-  // บันทึกค่าที่สะอาดลงไปแทนที่ค่าเดิม
+  var cleanIds = "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e";
   PropertiesService.getScriptProperties().setProperty('ADMIN_LINE_IDS', cleanIds);
   
-  // เช็คผลลัพธ์ทันที
-  const currentVal = PropertiesService.getScriptProperties().getProperty('ADMIN_LINE_IDS');
+  var currentVal = PropertiesService.getScriptProperties().getProperty('ADMIN_LINE_IDS');
   Logger.log("ค่าที่บันทึกใหม่คือ: " + currentVal);
   
   if (currentVal === cleanIds) {
@@ -121,7 +135,6 @@ function debugConfigSource() {
   Logger.log("ประเภทของค่าที่ดึงได้: " + typeof adminIds);
   Logger.log("ค่าที่ดึงได้จริง: " + adminIds);
   
-  // ลองหาว่าใน PropertiesService ตัวไหนที่มีคำว่า ADMIN_LINE_IDS
   const allProps = PropertiesService.getScriptProperties().getProperties();
   for (var key in allProps) {
     if (key.includes("ADMIN")) {
@@ -131,29 +144,27 @@ function debugConfigSource() {
 }
 
 function forceCleanAdminIds() {
-  // ค่า ID ที่ถูกต้องและสะอาด (ไม่มีเครื่องหมายคำพูด)
   const cleanIds = "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e";
-  
-  // 1. เขียนทับใน Script Properties (ป้องกันกรณีดึงจากที่นี่)
   PropertiesService.getScriptProperties().setProperty('ADMIN_LINE_IDS', cleanIds);
   PropertiesService.getScriptProperties().setProperty('ADMIN_LINE_ID', cleanIds);
   
-  // 2. ถ้าคุณใช้ Google Sheet เก็บค่า (สังเกตจาก log ว่ามีการดึงค่าจาก Sheet)
-  // ให้ลองรันคำสั่งนี้เพื่อเปลี่ยนค่าใน Sheet ตรงๆ
-  // **หมายเหตุ: แก้ไขชื่อ 'Config' เป็นชื่อชีตของคุณนะครับ**
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config.gs'); 
-  if (sheet) {
-    const range = sheet.getDataRange();
-    const values = range.getValues();
-    for (let i = 0; i < values.length; i++) {
-      for (let j = 0; j < values[i].length; j++) {
-        if (typeof values[i][j] === 'string' && values[i][j].includes('U19fc3f88')) {
-          sheet.getRange(i + 1, j + 1).setValue(cleanIds);
-          Logger.log("✅ พบและแก้ไขค่าใน Sheet ที่ตำแหน่งแถว " + (i + 1) + " คอลัมน์ " + (j + 1));
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config.gs'); 
+    if (sheet) {
+      const range = sheet.getDataRange();
+      const values = range.getValues();
+      for (let i = 0; i < values.length; i++) {
+        for (let j = 0; j < values[i].length; j++) {
+          if (typeof values[i][j] === 'string' && values[i][j].includes('U19fc3f88')) {
+            sheet.getRange(i + 1, j + 1).setValue(cleanIds);
+            Logger.log("✅ พบและแก้ไขค่าใน Sheet ที่ตำแหน่งแถว " + (i + 1) + " คอลัมน์ " + (j + 1));
+          }
         }
       }
+    } else {
+      Logger.log("⚠️ ไม่พบชีตชื่อ 'Config.gs'");
     }
-  } else {
-    Logger.log("⚠️ ไม่พบชีตชื่อ 'Config.gs' (ถ้าคุณใช้ชื่ออื่น รบกวนบอกชื่อชีตครับ)");
+  } catch (e) {
+    Logger.log("⚠️ forceCleanAdminIds Sheet Sync skipped: " + e.message);
   }
 }

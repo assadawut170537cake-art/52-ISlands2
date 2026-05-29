@@ -2,7 +2,7 @@
 // 4_CoreDatabase.gs (ฟังก์ชัน Batch Write และตรรกะคำนวณเวลาฉบับสมบูรณ์ V.2)
 // =================================================================
 
-const CORE_DB = {
+var CORE_DB = {
   START_ROW: 3,      
   COL_NAME_CHECK: 4, 
   COL_SITE: 6,       
@@ -91,6 +91,9 @@ function writeToDailySheetBatch(data, userId, fileId) {
   return { count: successCount, errors: errors };
 }
 
+/**
+ * คำนวณเวลาทำงานปกติและ OT ตามมาตรฐาน CORE_DB
+ */
 function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
   if (!eT || eT.toString().trim() === "") {
     block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = "";
@@ -109,22 +112,26 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
   let otData = ["", "", "", "", "", "", ""];
   let otT = 0; let normHr = "";
 
+  // คำนวณเวลาตามช่วง
   if (s < 480) { otData[0] = toF(s); otData[1] = "08.00"; otT += (480 - s); }
   const nIn = Math.max(s, 480); const nOut = Math.min(e, 1020);
   let nDur = Math.max(0, nOut - nIn);
-  if (nIn <= 720 && nOut >= 780) nDur -= 60; 
+  if (nIn <= 720 && nOut >= 780) nDur -= 60; // หักพักเที่ยง
 
   if (isN) { otData[2] = nI || "12.00"; otData[3] = nO || "13.00"; otT += (toM(otData[3]) - toM(otData[2])); }
   if (e > 1020) { otData[4] = "17.00"; otData[5] = toF(e); otT += (e - 1020); }
 
+  // เติม OT ลงในเวลาทำงานปกติที่ขาด (ถ้ามี)
   let gap = 480 - nDur;
   if (gap > 0 && otT > 0) {
       let fill = Math.min(gap, otT);
       nDur += fill; otT -= fill;
   }
+  
   if (nDur > 0) normHr = toHrs(nDur);
   if (otT > 0) otData[6] = toHrs(otT);
 
+  // อัปเดตข้อมูลลงใน block
   block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = normHr || "";
   for (let i = 0; i < 7; i++) block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + i] = otData[i];
   

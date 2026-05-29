@@ -387,3 +387,66 @@ function checkIsAdmin(userId) {
   const adminIds = (getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(s => s.trim());
   return adminIds.includes(userId);
 }
+
+// =================================================================
+// 📱 SOURCE HANDLERS (อัปเดตระบบ Hook)
+// =================================================================
+async function handleLineWebhook(json) {
+  let globalReplyToken = null;
+  try {
+    const event = json.events[0];
+    if (!event) return ContentService.createTextOutput("OK");
+
+    const { replyToken, source, message } = event;
+    globalReplyToken = replyToken; 
+    const userId = source.userId;
+    const groupId = source.groupId; // ดึง groupId
+    
+    // 🛡️ [GUARD CLAUSE]: ตรวจสอบ Group Whitelist
+    if (source.type === "group" && !isAllowedGroup(groupId)) {
+      logSystemEvent("BLOCKED_GROUP", "LINE_BOT", `Group ID: ${groupId} rejected.`);
+      return ContentService.createTextOutput("OK"); // Silent Ignore
+    }
+    
+    const adminId = (typeof getDynamicConfig === 'function' ? getDynamicConfig("ADMIN_LINE_ID") : "") || "";
+    const adminList = adminId.split(",").map(id => id.trim());
+    
+    if (message && message.type === "text") {
+      const msg = message.text.trim();
+
+      const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
+      if (source.type === "user" && !isUserAdmin) {
+        if (typeof reply === 'function') reply(replyToken, "⚠️ ขออภัยครับ บอทรับลงรายงานเฉพาะใน 'ไลน์กลุ่ม' เท่านั้นครับ 🙏");
+        return ContentService.createTextOutput("OK");
+      }
+
+      const cache = CacheService.getScriptCache();
+      const pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
+      const pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
+      const pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+
+      if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
+        cache.removeAll([`PENDING_CLOCKIN_${userId}`, `PENDING_OT_CONFIRM_${userId}`, `PENDING_OT_DETAILS_${userId}`]);
+        logSystemEvent("CACHE_CLEARED", "LINE_BOT", `Cleared pending states for: ${userId}`);
+      }
+
+      // 🤖 [HOOK]: ลอจิกแชทบอท LINE ทำงานต่อตรงนี้ (Flexible Name Matching)
+      const extractedEmployees = extractEmployeesFromText(msg);
+      if (extractedEmployees.length > 0) {
+        logSystemEvent("NAME_MATCHED", "LINE_BOT", `Found ${extractedEmployees.length} emps from ${userId}`);
+        
+        // จำลองข้อมูลเบื้องต้น รอการเติมข้อมูลจาก Regex หรือ AI ต่อไป
+        const mockInfo = { date: "วันนี้", time: "รอแก้ไข", site: "รอแก้ไข" };
+        const replyMsg = formatResponse(extractedEmployees, mockInfo);
+        
+        if (typeof reply === 'function') reply(replyToken, replyMsg);
+      }
+    }
+    return ContentService.createTextOutput("OK");
+
+  } catch (err) {
+    logSystemEvent("LINE_HANDLER_ERROR", "LINE_BOT", err.message);
+    if (globalReplyToken && typeof reply === 'function') reply(globalReplyToken, "⚠️ ระบบขัดข้องชั่วคราว (Code: LINE_ERR)");
+    return ContentService.createTextOutput("Error");
+  }
+}

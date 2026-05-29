@@ -319,39 +319,6 @@ function fixAllOTInSheet() {
   Logger.log("ฟังก์ชันซ่อมแซม OT ถูกเรียกใช้");
 }
 
-
-function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
-  if (!eT || eT.toString().trim() === "") {
-    block[rowIndex][GLOBAL_CONFIG.COL_NORMAL_HR - 1] = "";
-    for (let c = 0; c < 7; c++) block[rowIndex][GLOBAL_CONFIG.COL_OT_M_IN - 1 + c] = "";
-    return 0;
-  }
-  const toM = (t) => { const p = t.toString().replace('.', ':').split(':'); return (parseInt(p[0]) || 0) * 60 + (parseInt(p[1]) || 0); };
-  const toF = (m) => { let h = Math.floor(m / 60) % 24; return (h < 10 ? "0" + h : h) + "." + (m % 60 < 10 ? "0" + m % 60 : m % 60); };
-  const toHrs = (m) => parseFloat((m / 60).toFixed(2));
-
-  const s = toM(sT); let e = toM(eT); if (e === 0) return 0;
-  if (e < s) e += 1440; 
-  let otData = ["", "", "", "", "", "", ""]; let otT = 0; let normHr = "";
-
-  if (s < 480) { otData[0] = toF(s); otData[1] = "08.00"; otT += (480 - s); }
-  const nIn = Math.max(s, 480); const nOut = Math.min(e, 1020);
-  let nDur = Math.max(0, nOut - nIn);
-  if (nIn <= 720 && nOut >= 780) nDur -= 60; 
-
-  if (isN) { otData[2] = nI || "12.00"; otData[3] = nO || "13.00"; otT += (toM(otData[3]) - toM(otData[2])); }
-  if (e > 1020) { otData[4] = "17.00"; otData[5] = toF(e); otT += (e - 1020); }
-
-  let gap = 480 - nDur;
-  if (gap > 0 && otT > 0) { let fill = Math.min(gap, otT); nDur += fill; otT -= fill; }
-  if (nDur > 0) normHr = toHrs(nDur);
-  if (otT > 0) otData[6] = toHrs(otT);
-
-  block[rowIndex][GLOBAL_CONFIG.COL_NORMAL_HR - 1] = normHr || "";
-  for (let i = 0; i < 7; i++) block[rowIndex][GLOBAL_CONFIG.COL_OT_M_IN - 1 + i] = otData[i];
-  return toHrs(otT);
-}
-
 // -----------------------------------------------------------------
 // 🛠️ ฟังก์ชันเสริมประสิทธิภาพฉบับ Hotfix แบบไม่พึ่งพารายการนอกไฟล์
 // -----------------------------------------------------------------
@@ -468,4 +435,100 @@ function parseThaiDate(s) {
   }
   
   return `${day} ${m} ${y}`;
+}
+
+/**
+ * ⚙️ ดึงค่า Configuration แบบ Dynamic พร้อมระบบ Caching ระดับสูง
+ * @param {string} key - ชื่อ Key ที่ต้องการดึงค่า
+ * @param {any} defaultValue - ค่าเริ่มต้นที่จะให้คืนกลับไปกรณีไม่พบข้อมูล
+ * @returns {any} ค่าที่ได้จาก Cache, Properties หรือ defaultValue
+ */
+function getDynamicConfig(key, defaultValue = null) {
+  if (!key) return defaultValue;
+
+  const cache = CacheService.getScriptCache();
+  
+  try {
+    // 1. ตรวจสอบจาก Cache ก่อน (เร็วที่สุด)
+    const cachedValue = cache.get(key);
+    if (cachedValue !== null) {
+      return cachedValue;
+    }
+
+    // 2. Fallback ไปดึงจาก Script Properties
+    const props = PropertiesService.getScriptProperties();
+    const propValue = props.getProperty(key);
+    
+    if (propValue !== null) {
+      // นำค่าที่ดึงได้กลับไปเก็บใน Cache เป็นเวลา 6 ชั่วโมง (21600 วินาที)
+      cache.put(key, propValue, 21600);
+      return propValue;
+    }
+    
+    // 3. Fallback ไปดึงจากฐานข้อมูล 'Main Menu' (สามารถเปิดใช้ได้ถ้ามี Sheet Config)
+    /*
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Config');
+    if (sheet) {
+      // ลอจิกการดึงจาก Sheet...
+    }
+    */
+
+  } catch (e) {
+    console.warn(`[getDynamicConfig] Warning: ไม่สามารถดึงค่า ${key} ได้ - ${e.message}`);
+  }
+
+  // คืนค่า Default ที่ปลอดภัยเสมอหากไม่พบ Key
+  return defaultValue;
+}
+
+/**
+ * 🛡️ ระบบบันทึก Audit Trail สำหรับการตรวจสอบ Monitor และ CI/CD Pipeline
+ * @param {string} actionType - ประเภทเหตุการณ์ (เช่น SYSTEM_ERROR, USER_ACTION)
+ * @param {string} status - สถานะ (เช่น SUCCESS, RUNTIME_EXCEPTION, REJECT)
+ * @param {string} payload - ข้อมูลที่เกี่ยวข้อง หรือ Payload ที่ถูกยิงมา
+ * @param {string} user - ผู้กระทำ (ถ้ามี)
+ * @param {number} execTime - เวลาที่ใช้ประมวลผล (ms)
+ * @param {string} level - ระดับความรุนแรง (INFO, WARN, ERROR, CRITICAL)
+ * @param {string} errorMessage - รายละเอียดข้อผิดพลาดเชิงลึก
+ */
+function logAuditTrail(actionType, status, payload, user, execTime, level, errorMessage) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet(); // หากต้องการชี้ไปไฟล์อื่นให้ใช้ openById
+    const sheetName = "AuditLog";
+    let sheet = ss.getSheetByName(sheetName);
+
+    // สร้างหน้า Sheet อัตโนมัติหากยังไม่มี เพื่อป้องกันระบบพัง
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(["Timestamp", "Level", "Action", "Status", "User", "ExecutionTime(ms)", "Payload", "ErrorMessage"]);
+      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#e0e0e0");
+      sheet.setFrozenRows(1);
+    }
+
+    const timestamp = new Date();
+    // จัดการข้อมูลให้ปลอดภัย ป้องกันช่องโหว่ความยาวข้อมูลเกินโควต้าชีต
+    const safePayload = typeof payload === 'object' ? JSON.stringify(payload) : String(payload || "");
+    const safeError = String(errorMessage || "");
+
+    sheet.appendRow([
+      timestamp,
+      level || "INFO",
+      actionType || "UNKNOWN",
+      status || "UNKNOWN",
+      user || "SYSTEM",
+      execTime || 0.0,
+      safePayload.substring(0, 1000), // ตัดคำให้ไม่เกิน 1,000 ตัวอักษรป้องกันล้น
+      safeError.substring(0, 1000)
+    ]);
+
+    // แจ้งเตือนแบบ Real-time ลง Console ของนักพัฒนาหากเกิด ERROR
+    if (level === "ERROR" || level === "CRITICAL") {
+      console.error(`[AUDIT ${level}] ${actionType}: ${safeError}`);
+    }
+
+  } catch (e) {
+    // ปราการด่านสุดท้าย ไม่ให้ระบบหลักล่มหาก Audit พัง
+    console.error(`[CRITICAL] ระบบ AuditTrail ล้มเหลว: ${e.message}`);
+  }
 }

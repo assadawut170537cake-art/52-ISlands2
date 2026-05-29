@@ -15,6 +15,7 @@ const SHEET_CHANGELOG = "System_Changelog";
  */
 function getProjectFileList() {
   return [
+    "0_Security.gs",
     "1_bot line.gs",
     "2_WebApp.gs",
     "3_SharedFunctions.gs",
@@ -24,11 +25,13 @@ function getProjectFileList() {
     "7_AI_Assistant.gs",
     "8_WorkflowInteractions.gs",
     "9_System_Chat.gs",
-    "Interactive_Manual.html",
     "10_DevOps_Core.gs",
     "config.gs",
-    "ImportDialog.html"
-  ];
+    "InjectorSidebar.html",
+    "Interactive_Manual.html",
+    "SmartWorksiteDashboard.html",
+    "WebApp_GeminiTools.gs"
+  ]
 }
 
 /**
@@ -41,6 +44,7 @@ function onOpen() {
     .addItem("🔄 ⚡ ซิงค์รหัสจาก GAS อัตโนมัติ (Auto API Sync)", "syncDirectFromGAS")
     .addItem("👁️ ยุบ-กางเนื้อโค้ด (Toggle Outline View)", "toggleCodeVisibility")
     .addItem('📝 บันทึกการอัปเดต (Changelog)', 'promptChangelog')
+    .addItem('📝 อัปเดตโค้ด (ฟังชั้นเค้ก)', 'showDevOpsInjectorSidebar')
     .addToUi();
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -187,67 +191,6 @@ function syncDirectFromGAS() {
   ss.toast("🔄 ดึงฐานข้อมูลรหัส 14 ไฟล์ลงบอร์ดคอลัมน์ F เรียบร้อย!", "DevOps Engine", 5);
 }
 
-/**
- * 🟩 ฟังก์ชันรวมศูนย์ Trigger อัตโนมัติเมื่อมีการแก้ไขหน้าจอด้วยมือ
- */
-function onEdit(e) {
-  if (!e) return;
-  const sheet = e.source.getActiveSheet();
-  const sheetName = sheet.getName();
-  const range = e.range; const row = range.getRow(); const col = range.getColumn();
-
-  // 1. ตรรกะคุมหน้าบันทึกเวอร์ชันเสถียร Changelog
-  if (sheetName === SHEET_CHANGELOG && col === 8 && row > 1) {
-    const statusValue = e.value;
-    if (statusValue === "🟢 เสถียรแล้ว (Lock Code)") {
-      const targetFunc = sheet.getRange(row, 4).getValue().toString().trim() || sheet.getRange(row, 5).getValue().toString().trim();
-      if (!targetFunc) {
-        SpreadsheetApp.getUi().alert("⚠️ กรุณากรอกชื่อฟังก์ชันในช่องคอลัมน์ Changed หรือ Added ก่อนกดล็อกครับ");
-        range.setValue("🧪 กำลังทดสอบ"); return;
-      }
-
-      const wsSheet = e.source.getSheetByName(SHEET_WORKSPACE);
-      if (!wsSheet) return;
-      const wsData = wsSheet.getRange(2, 1, wsSheet.getLastRow() - 1, 9).getValues();
-      
-      let foundFile = "";
-      for (let i = 0; i < wsData.length; i++) {
-        if (wsData[i][2].toString().trim() === targetFunc) {
-          foundFile = wsData[i][6].toString().trim();
-          break;
-        }
-      }
-
-      if (foundFile) {
-        let fileLines = [];
-        for (let k = 0; k < wsData.length; k++) {
-          if (wsData[k][6].toString().trim() === foundFile) {
-            fileLines.push(wsData[k][5].toString());
-          }
-        }
-        const matchedFullCode = fileLines.join("\n");
-        sheet.getRange(row, 7).setValue(matchedFullCode);
-        sheet.getRange(row, 1).setValue(new Date());
-        e.source.toast("🔒 รวมร่างโค้ดเสถียรไฟล์ " + foundFile + " เข้าคลังประวัติเรียบร้อย!", "DevOps Engine", 5);
-      } else {
-        SpreadsheetApp.getUi().alert("❌ ไม่พบฟังก์ชันชื่อ '" + targetFunc + "' ในหน้าบอร์ดทำงานปัจจุบันครับน้อง");
-        range.setValue("🧪 กำลังทดสอบ");
-      }
-    } else if (statusValue === "🧪 กำลังทดสอบ") {
-      sheet.getRange(row, 7).clearContent();
-      e.source.toast("🗑️ ล้างรหัสในคลังสำรองออกแล้ว", "DevOps Engine", 4);
-    }
-  }
-
-  // 2. ตรรกะคุมระบบสาดสีคำซ้ำเรียลไทม์เมื่อมนุษย์พิมพ์แก้คอลัมน์ C ในหน้า Workspace
-  if (sheetName === SHEET_WORKSPACE && range.getColumn() <= 3 && range.getLastColumn() >= 3 && range.getLastRow() > 1) {
-    highlightDuplicateFunctions();
-  }
-}
-
-/**
- * 🎨 ห้องเครื่องสาดสีคำซ้ำอัจฉริยะ (ทำงานแบบความเร็วสูงในแรมลดอาการกระตุก)
- */
 function highlightDuplicateFunctions() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_WORKSPACE);
@@ -319,4 +262,107 @@ function toggleCodeVisibility() {
     if (blockLength > 0) ws.hideRows(startRow, blockLength);
     ss.toast("🔒 โหมดย่นตาราง: แสดงเฉพาะโครงสร้างคลังสารบัญ", "DevOps Engine", 3);
   }
+}
+
+function handleLockCode(e) {
+  const sheet = e.range.getSheet();
+  const row = e.range.getRow();
+  const targetFunc = sheet.getRange(row, 4).getValue().toString().trim() || sheet.getRange(row, 5).getValue().toString().trim();
+  
+  if (!targetFunc) {
+    SpreadsheetApp.getUi().alert("⚠️ กรุณากรอกชื่อฟังก์ชันในช่องคอลัมน์ Changed หรือ Added ก่อนกดล็อกครับ");
+    e.range.setValue("🧪 กำลังทดสอบ"); return;
+  }
+  
+  const wsSheet = e.source.getSheetByName(SHEET_WORKSPACE);
+  const wsData = wsSheet.getRange(2, 1, wsSheet.getLastRow() - 1, 9).getValues();
+  let foundFile = wsData.find(r => r[2].toString().trim() === targetFunc)?.[6] || "";
+
+  if (foundFile) {
+    const matchedFullCode = wsData.filter(r => r[6].toString().trim() === foundFile).map(r => r[5]).join("\n");
+    sheet.getRange(row, 7).setValue(matchedFullCode);
+    sheet.getRange(row, 1).setValue(new Date());
+    e.source.toast("🔒 รวมร่างโค้ดเสถียรไฟล์ " + foundFile + " เรียบร้อย!", "DevOps Engine", 5);
+  } else {
+    SpreadsheetApp.getUi().alert("❌ ไม่พบฟังก์ชันชื่อ '" + targetFunc + "' ครับน้อง");
+    e.range.setValue("🧪 กำลังทดสอบ");
+  }
+}
+// FILE: 10_DevOps_Core | FUNC: injectCodeFromSidebar
+function injectCodeFromSidebar(payload) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Code_Workspace");
+  if (!sheet) return "❌ ไม่พบแผ่นงานชื่อ: Code_Workspace";
+
+  const rawCode = payload.newCode || "";
+  const lines = rawCode.split("\n");
+  if (lines.length === 0 || !lines[0].trim()) {
+    return "❌ โค้ดว่างเปล่า หรือไม่มีบรรทัดแรกระบุพิกัดภาระงาน";
+  }
+
+  // 🌟 [CRITICAL FIX] ปรับปรุง Regex ตัวสแกนชื่อไฟล์ให้รองรับช่องว่าง (เช่น 1_bot line.gs) โดยกวาดคำยาวไปจนกว่าจะชนเครื่องหมาย |
+  const firstLine = lines[0].trim();
+  const fileMatch = firstLine.match(/FILE:\s*([^|]+?)(?=\s*\||\s*FUNC|$)/i);
+  const funcMatch = firstLine.match(/FUNC:\s*([a-zA-Z0-9_]+)/i);
+
+  if (!fileMatch || !funcMatch) {
+    return "❌ รูปแบบหัวนำทางบรรทัดแรกไม่ถูกต้อง (ต้องประกอบด้วย FILE: และ FUNC:)";
+  }
+
+  const fileName = fileMatch[1].trim();
+  const functionName = funcMatch[1].trim();
+  
+  // 🌟 ลอกคราบตัดข้อความคอมเมนต์บรรทัดแรกทิ้งไป ไม่บันทึกลงตารางหากมีฟังก์ชันอยู่แล้ว
+  const codeToSave = lines.slice(1).join("\n");
+
+  const lastRow = sheet.getLastRow();
+  const data = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 4).getValues() : [];
+  
+  let currentFile = "";
+  let matchRow = -1;
+  let lastRowOfFile = -1;
+
+  for (let i = 0; i < data.length; i++) {
+    let rowFile = data[i][0] ? data[i][0].toString().trim() : "";
+    let rowFunc = data[i][2] ? data[i][2].toString().trim() : "";
+
+    if (rowFile !== "") currentFile = rowFile;
+    
+    if (currentFile.toLowerCase() === fileName.toLowerCase()) {
+      lastRowOfFile = i + 2; // บันทึกพิกัดท้ายสุดของไฟล์ไว้ เผื่อต้องแทรกแถวใหม่
+      if (rowFunc.toLowerCase() === functionName.toLowerCase()) {
+        matchRow = i + 2;
+        break;
+      }
+    }
+  }
+
+  // 🎯 กรณีที่ 1: ตรวจพบฟังก์ชันเดิมอยู่แล้ว -> อัปเดตลง คอลัมน์ E (New Update)
+  if (matchRow !== -1) {
+    sheet.getRange(matchRow, 5).setValue(codeToSave);
+    sheet.setActiveRange(sheet.getRange(matchRow, 5));
+    return "🟢 โมดิฟายฟังก์ชันเดิมสำเร็จ! ระบบลอกคราบหัวไฟล์และหยอดเข้าไฟล์ [" + fileName + "] แถวที่ " + matchRow + " เรียบร้อยครับ";
+  } 
+  // 🎯 กรณีที่ 2: ไม่พบในระบบ (ฟังก์ชันใหม่เอี่ยม) -> แทรกแถวใหม่ในตำแหน่งที่เหมาะสม
+  else {
+    let insertAt = lastRowOfFile !== -1 ? lastRowOfFile + 1 : sheet.getLastRow() + 1;
+    sheet.insertRowAfter(insertAt - 1);
+    
+    // พ่นโครงสร้างตรรกะตั้งต้นเข้าคอลัมน์หลักตามกฎ Data Validation 14 ไฟล์จริง
+    sheet.getRange(insertAt, 1).setValue(fileName);
+    sheet.getRange(insertAt, 2).setValue(1); 
+    sheet.getRange(insertAt, 3).setValue(functionName);
+    sheet.getRange(insertAt, 4).setValue(""); 
+    sheet.getRange(insertAt, 5).setValue(codeToSave); 
+    
+    sheet.setActiveRange(sheet.getRange(insertAt, 5));
+    return "✨ ติดตั้งฟังก์ชันใหม่เอี่ยม! เขียนชื่อไฟล์และชื่อฟังก์ชันลงคอลัมน์ตั้งต้น แถวที่ " + insertAt + " สำเร็จแล้วครับน้อง!";
+  }
+}
+// 🌟 ฟังก์ชันเปิดแผงควบคุม Sidebar บนหน้า Google Sheets
+function showDevOpsInjectorSidebar() {
+  const html = HtmlService.createHtmlOutputFromFile('InjectorSidebar')
+      .setTitle('DevOps Workspace Injector (V11)')
+      .setWidth(300);
+  SpreadsheetApp.getUi().showSidebar(html);
 }

@@ -13,16 +13,48 @@ function reply(tk, m) {
   });
 }
 
+/**
+ * ส่งข้อความพร้อมปุ่มเลือก (Quick Reply) ไปยัง LINE
+ * @param {string} tk - Reply Token
+ * @param {string} t - ข้อความที่จะส่ง
+ * @param {Array<string>} b - อาร์เรย์ของปุ่ม (Label/Text)
+ */
 function replyWithButtons(tk, t, b) {
-  const items = b.map(l => ({ "type": "action", "action": { "type": "message", "label": l, "text": l } }));
-  UrlFetchApp.fetch("https://api.line.me/v2/bot/message/reply", {
-    method: "post",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN')
-    },
-    payload: JSON.stringify({ replyToken: tk, messages: [{ "type": "text", "text": t, "quickReply": { "items": items } }] })
-  });
+  try {
+    const LINE_TOKEN = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
+    if (!LINE_TOKEN) throw new Error("Missing LINE_CHANNEL_ACCESS_TOKEN");
+
+    const items = b.map(l => ({ 
+      "type": "action", 
+      "action": { "type": "message", "label": l, "text": l } 
+    }));
+
+    const payload = { 
+      replyToken: tk, 
+      messages: [{ 
+        "type": "text", 
+        "text": t, 
+        "quickReply": { "items": items } 
+      }] 
+    };
+
+    const response = UrlFetchApp.fetch("https://api.line.me/v2/bot/message/reply", {
+      method: "post",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + LINE_TOKEN
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true // สำคัญ: เพื่อให้เราจัดการ Error เองได้โดยไม่หยุดการทำงาน
+    });
+
+    const code = response.getResponseCode();
+    if (code !== 200) {
+      console.error(`LINE API Error (${code}): ${response.getContentText()}`);
+    }
+  } catch (e) {
+    console.error("replyWithButtons failed: " + e.message);
+  }
 }
 
 async function doPost(e) {
@@ -556,4 +588,42 @@ function handleTestMode(content, replyToken) {
 function isAdmin(userId) {
   // บังคับอ่านจาก GLOBAL_CONFIG เท่านั้น ไม่ผ่าน getDynamicConfig ที่อาจมี Cache เก่า
   return GLOBAL_CONFIG.ADMIN_LINE_IDS.includes(userId);
+}
+function getSavedGroupWhitelist() {
+  var cache = CacheService.getScriptCache();
+  var cachedWhitelist = cache.get("GROUP_WHITELIST");
+  
+  if (cachedWhitelist) {
+    return JSON.parse(cachedWhitelist); // คืนค่าจาก Cache ทันทีถ้ายั้งไม่หมดอายุ
+  }
+  
+  var whitelist = [];
+  
+  // 1. ลองดึงจาก Script Properties ก่อน (ตั้งค่าในหน้า Project Settings)
+  var properties = PropertiesService.getScriptProperties();
+  var whitelistString = properties.getProperty("ALLOWED_GROUP_IDS");
+  
+  if (whitelistString) {
+    whitelist = whitelistString.split(",").map(function(id) { return id.trim(); });
+  } else {
+    // 2. Fallback: ถ้าไม่มีใน Properties ให้ดึงจากหน้าชีตชื่อ "ตั้งค่า"
+    try {
+      var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ตั้งค่า");
+      if (sheet) {
+        // สมมติว่า Group ID อยู่ที่คอลัมน์ A ตั้งแต่แถวที่ 2 ลงมา
+        var data = sheet.getRange("A2:A").getValues();
+        whitelist = data.map(function(row) { return row[0].toString().trim(); })
+                        .filter(function(id) { return id !== ""; });
+      }
+    } catch(e) {
+      Logger.log("Error reading whitelist sheet: " + e);
+    }
+  }
+  
+  // บันทึกลง Cache เป็นเวลา 1 ชั่วโมง (3600 วินาที)
+  if (whitelist.length > 0) {
+    cache.put("GROUP_WHITELIST", JSON.stringify(whitelist), 3600);
+  }
+  
+  return whitelist;
 }

@@ -1,0 +1,1580 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Smart Worksite System - Enterprise AI Edition V.6</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #f8fafc; }
+        .spinner { border: 3px solid rgba(255,255,255,0.3); border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 0.8s linear infinite; }
+        @keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+        .pulse-mic { animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red {
+            0%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(239,68,68,0.7)}
+            70%{transform:scale(1);box-shadow:0 0 0 10px rgba(239,68,68,0)}
+            100%{transform:scale(0.95);box-shadow:0 0 0 0 rgba(239,68,68,0)}
+        }
+        .laser-sweep { position:absolute;width:100%;height:4px;background:linear-gradient(180deg,rgba(16,185,129,0) 0%,rgba(16,185,129,1) 50%,rgba(16,185,129,0) 100%);animation:sweep 2s ease-in-out infinite;box-shadow:0 0 12px rgba(16,185,129,0.8); }
+        @keyframes sweep { 0%{top:0%} 50%{top:100%} 100%{top:0%} }
+        .scrollbar-hide::-webkit-scrollbar { display:none; }
+        .scrollbar-hide { -ms-overflow-style:none; scrollbar-width:none; }
+        /* Stat Slider */
+        .stat-slide { min-width: 160px; flex-shrink: 0; }
+        /* Chatbot chat bubble */
+        .chat-bubble-ai { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); color: white; border-radius: 0 16px 16px 16px; padding: 12px 14px; max-width: 85%; font-size: 14px; line-height: 1.5; }
+        .chat-bubble-user { background: #f1f5f9; color: #334155; border-radius: 16px 0 16px 16px; padding: 12px 14px; max-width: 85%; font-size: 14px; line-height: 1.5; }
+        /* Chatbot typing animation */
+        .typing-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.7); animation: typing 1.2s infinite; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-8px)} }
+        /* Fast Track pulse button */
+        .fast-track-active { animation: ft-pulse 2s ease-in-out infinite; }
+        @keyframes ft-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0.4)} 50%{box-shadow:0 0 0 8px rgba(99,102,241,0)} }
+        /* AI Tool card hover */
+        .ai-tool-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .ai-tool-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="text-slate-800 antialiased">
+
+    <div id="gas-data-bridge" style="display:none;">
+        {
+            "isAdmin": false,
+            "userEmail": "engineer@smartworksite.local",
+            "adminEmails": [],
+            "employees": [],
+            "employeeCount": 0,
+            "backdateLimit": 2,
+            "isLocalDev": true
+        }
+    </div>
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+        // ============================================================
+        // CONSTANTS
+        // ============================================================
+        const LOGO_URL = "https://i.ibb.co/N3w3P9pS/52.png";
+
+        // จำลองฐานข้อมูล (ใช้เมื่อ GAS ไม่ส่งข้อมูลมา / Local Dev)
+        const INITIAL_MOCK_DATA = [
+            { A:2, B:'นาย', C:'มนตรี',   D:'ใสภาค',      E:'นาย มนตรี ใสภาค',      J:'กฤษฎานคร 21', K:'ปกติ',  N:'52901' },
+            { A:3, B:'นาย', C:'แทน',     D:'สุขสม',      E:'นาย แทน สุขสม',         J:'ปรานบุรี',     K:'ปกติ',  N:'52902' },
+            { A:4, B:'นาย', C:'ศุภณัฐ',  D:'จำเริญ',     E:'นาย ศุภณัฐ จำเริญ',     J:'นิมิตใหม่',    K:'ลาออก', N:'52903' },
+            { A:5, B:'นาย', C:'สมพร',    D:'หิตะรัตน์',  E:'นาย สมพร หิตะรัตน์',    J:'นิมิตใหม่',    K:'ปกติ',  N:'52904' },
+            { A:6, B:'นาย', C:'วินวิน',  D:'ทัน',        E:'นาย วินวิน ทัน',         J:'บางละมุง',     K:'ปกติ',  N:'52093' },
+            { A:7, B:'น.ส.',C:'โมนัน',   D:'ดา',         E:'น.ส. โมนัน ดา',          J:'พระราม 3',     K:'ปกติ',  N:'52096' },
+            { A:8, B:'นาย', C:'ธนวุฒิ',  D:'โมคทิพย์',   E:'นาย ธนวุฒิ โมคทิพย์',    J:'เลคไซท์2',    K:'ปกติ',  N:'52098' },
+        ];
+
+        const MOCK_SITES = ['สาธุประดิษฐ์','บางละมุง','คลองสาน','ปรานบุรี','ดุสิต','สุขุมวิท101','นิมิตใหม่','เลควูด'];
+
+        // ============================================================
+        // SVG ICONS (inline, no external dependency)
+        // ============================================================
+        const Icon = {
+            Dashboard: ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>,
+            Phone:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
+            Shield:    ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+            Chart:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="4" height="7" rx="1"/><rect x="15" y="5" width="4" height="12" rx="1"/></svg>,
+            DB:        ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>,
+            Users:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+            Chat:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+            Sparkles:  ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>,
+            Bot:       ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>,
+            Mic:       ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>,
+            Send:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+            X:         ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+            Trash:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+            Lock:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+            Menu:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+            Bell:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
+            Gear:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+            Save:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
+            Camera:    ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>,
+            Check:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>,
+            Alert:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+            Download:  ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+            Clock:     ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            Book:      ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
+            Folder:    ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
+            Calendar:  ({c="w-5 h-5"}) => <svg className={c} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+        };
+
+        // ============================================================
+        // COMPONENT: StatSlider — สไลด์สถิติแนวนอน (ข้อ 4)
+        // แสดงการ์ดสถิติ 3 ใบ เลื่อนได้ด้วยปลายนิ้ว
+        // ============================================================
+        function StatSlider({ stats, activeEmployeeCount, activeSitesCount }) {
+            const [current, setCurrent] = useState(0);
+            const slides = [
+                {
+                    label: 'พนักงานวันนี้',
+                    value: activeEmployeeCount,
+                    unit: 'คน',
+                    icon: '👥',
+                    color: 'from-violet-600 to-purple-700',
+                    sub: 'สถานะปกติในระบบ'
+                },
+                {
+                    label: 'ไซต์งานที่ใช้งาน',
+                    value: activeSitesCount,
+                    unit: 'ไซต์',
+                    icon: '🏗️',
+                    color: 'from-sky-500 to-blue-600',
+                    sub: 'บันทึกรายงานแล้ว'
+                },
+                {
+                    label: 'OT สะสม (เดือนนี้)',
+                    value: stats.otTotal,
+                    unit: 'ชม.',
+                    icon: '⏰',
+                    color: 'from-emerald-500 to-teal-600',
+                    sub: 'ชั่วโมงล่วงเวลา'
+                },
+                {
+                    label: 'ความปลอดภัย',
+                    value: stats.safetyAvg,
+                    unit: '%',
+                    icon: '🛡️',
+                    color: 'from-amber-500 to-orange-600',
+                    sub: 'PPE Compliance'
+                }
+            ];
+            return (
+                <div className="space-y-2">
+                    {/* Scrollable slide area */}
+                    <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                        {slides.map((s, i) => (
+                            <div key={i} className={`stat-slide bg-gradient-to-br ${s.color} rounded-2xl p-4 text-white shadow-md flex-shrink-0`} style={{minWidth:'150px'}}>
+                                <div className="text-2xl mb-1">{s.icon}</div>
+                                <div className="text-2xl font-bold">{s.value}<span className="text-sm font-medium ml-1 opacity-80">{s.unit}</span></div>
+                                <div className="text-sm font-semibold opacity-90">{s.label}</div>
+                                <div className="text-xs opacity-70 mt-0.5">{s.sub}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="text-center text-xs text-slate-400">← เลื่อนดูสถิติเพิ่มเติม →</div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: InlineChatbot — แชทบอท AI ฝังใน Dashboard
+        // Header ใช้ p5.js instance mode: วงแหวน 3 ชั้น HSB หมุน
+        // (ตาม sketch ที่ user ส่งมา: layered arc rings + pulse sine)
+        // ============================================================
+        function InlineChatbot({ isAdmin, userEmail, showNotification }) {
+            const [messages, setMessages] = useState([
+                {
+                    id: 1,
+                    role: 'ai',
+                    text: 'สวัสดีครับพี่ 👋 ผมเป็นผู้ช่วยอัจฉริยะวิเคราะห์ความปลอดภัย กำลังคน และไซต์งานประจำระบบนี้ มีอะไรให้ผมรับใช้หน้างานครับ?'
+                }
+            ]);
+            const [inputMsg, setInputMsg] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [isExpanded, setIsExpanded] = useState(false);
+            const messagesEndRef = useRef(null);
+
+            // p5.js instance mode refs
+            const p5ContainerRef = useRef(null);
+            const p5InstanceRef  = useRef(null);
+
+            // Auto-scroll เมื่อมีข้อความใหม่
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages, isTyping]);
+
+            useEffect(() => {
+                if (!p5ContainerRef.current || typeof window.p5 === 'undefined') return;
+
+                const sketch = (p) => {
+                    p.setup = () => {
+                        const w = p5ContainerRef.current?.offsetWidth || 390;
+                        const canvas = p.createCanvas(w, 72);
+                        canvas.parent(p5ContainerRef.current);
+                        canvas.style('display', 'block');
+                        p.colorMode(p.HSB, 360, 100, 100);
+                        p.noFill();
+                        p.strokeCap(p.SQUARE);
+                    };
+
+                    p.draw = () => {
+                        p.clear();
+                        p.translate(p.width / 2, p.height / 2);
+
+                        const t = p.millis();
+                        const baseRotation = t * 0.0015;
+                        const layerCount = 3;
+
+                        for (let i = 0; i < layerCount; i++) {
+                            p.push();
+                            const phase = i * (p.TWO_PI / layerCount);
+                            const pulse = p.sin(t * 0.002 + phase);
+                            p.rotate(baseRotation + (i * 0.5) + (pulse * 0.5));
+
+                            const diameter = 90 - (i * 22);
+                            const hue      = (t * 0.08 + (i * 40)) % 360;
+                            const weight   = 10 + (i * 3);
+
+                            const arcStart = p.map(p.cos(t * 0.001 + phase), -1, 1, 0, p.PI);
+                            const arcEnd   = arcStart + p.PI * 0.8;
+
+                            p.stroke(hue, 85, 100);
+                            p.strokeWeight(weight);
+                            p.arc(0, 0, diameter, diameter, arcStart, arcEnd);
+                            p.pop();
+                        }
+                    };
+
+                    p.windowResized = () => {
+                        if (p5ContainerRef.current) {
+                            p.resizeCanvas(p5ContainerRef.current.offsetWidth, 72);
+                        }
+                    };
+                };
+
+                p5InstanceRef.current = new window.p5(sketch);
+
+                return () => {
+                    if (p5InstanceRef.current) {
+                        p5InstanceRef.current.remove();
+                        p5InstanceRef.current = null;
+                    }
+                };
+            }, []);
+
+            const sendChatMessage = () => {
+                if (!inputMsg.trim()) return;
+                const userMsg = { id: Date.now(), role: 'user', text: inputMsg };
+                setMessages(prev => [...prev, userMsg]);
+                setInputMsg('');
+                setIsTyping(true);
+
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler(reply => {
+                            setIsTyping(false);
+                            setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: reply || '⚠️ ไม่ได้รับคำตอบจาก AI' }]);
+                        })
+                        .withFailureHandler(err => {
+                            setIsTyping(false);
+                            setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: '❌ เกิดข้อผิดพลาด: ' + err.message }]);
+                        })
+                        .callGeminiAiChat(userMsg.text);
+                } else {
+                    setTimeout(() => {
+                        setIsTyping(false);
+                        const aiResponses = [
+                            'เข้าใจครับ! ผมจะวิเคราะห์ข้อมูลจากระบบให้ทันที 🔍',
+                            'ตามข้อมูลในฐานข้อมูล ขณะนี้มีพนักงานสถานะปกติทั้งหมด ครับ 📊',
+                            'ไม่มีปัญหาครับ! ผมตรวจสอบข้อมูล PPE ในรายงานล่าสุดแล้ว ✅',
+                            'กรุณาลองใช้ฟังก์ชัน AI Fast Track Logger เพื่อบันทึกเวลาทำงานเร็วขึ้นครับ ⚡',
+                        ];
+                        setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: aiResponses[Math.floor(Math.random() * aiResponses.length)] }]);
+                    }, 1500);
+                }
+            };
+
+            const clearChat = () => {
+                setMessages([{ id: 1, role: 'ai', text: 'เริ่มการสนทนาใหม่แล้วครับ มีอะไรให้ช่วยไหม? 😊' }]);
+            };
+
+            const chatHeight = isExpanded ? '380px' : '220px';
+
+            return (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="relative bg-slate-950 overflow-hidden" style={{height:'72px'}}>
+                        <div ref={p5ContainerRef} className="absolute inset-0 w-full h-full" style={{opacity: 0.62}} />
+                        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/20 to-slate-950/60 pointer-events-none" />
+                        <div className="absolute inset-0 px-4 flex items-center justify-between z-10">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-sm">
+                                    <Icon.Bot c="w-4 h-4 text-white" />
+                                </div>
+                                <div>
+                                    <div className="text-white font-bold text-sm drop-shadow-md">AI Assistant</div>
+                                    <div className="text-slate-300 text-xs tracking-wide">Gemini 2.5 Engine ✨</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                <button onClick={clearChat} className="text-white/60 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-all" title="ล้างแชท">
+                                    <Icon.Trash c="w-4 h-4" />
+                                </button>
+                                <button onClick={() => setIsExpanded(!isExpanded)} className="text-white/60 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-all" title={isExpanded ? 'ย่อ' : 'ขยาย'}>
+                                    {isExpanded
+                                        ? <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="21" y2="3"/><line x1="3" y1="21" x2="14" y2="10"/></svg>
+                                        : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-50 overflow-y-auto p-3 space-y-3 transition-all duration-300" style={{height: chatHeight}}>
+                        {messages.map(msg => (
+                            <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+                                {msg.role === 'ai' && (
+                                    <div className="w-6 h-6 rounded-full bg-violet-100 flex-shrink-0 flex items-center justify-center mb-1">
+                                        <span className="text-xs">⚡</span>
+                                    </div>
+                                )}
+                                <div className={msg.role === 'ai' ? 'chat-bubble-ai' : 'chat-bubble-user'}>
+                                    {msg.text}
+                                </div>
+                            </div>
+                        ))}
+                        {isTyping && (
+                            <div className="flex justify-start items-end gap-2">
+                                <div className="w-6 h-6 rounded-full bg-violet-100 flex-shrink-0 flex items-center justify-center">
+                                    <span className="text-xs">⚡</span>
+                                </div>
+                                <div className="chat-bubble-ai flex items-center gap-1 py-3">
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                    <div className="typing-dot"></div>
+                                </div>
+                            </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </div>
+
+                    <div className="border-t border-slate-100 bg-white p-3 flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={inputMsg}
+                            onChange={e => setInputMsg(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && sendChatMessage()}
+                            placeholder="พิมพ์คำสั่งเพื่อวิเคราะห์งาน..."
+                            className="flex-1 bg-slate-50 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none border border-slate-200 focus:border-violet-400 focus:bg-white transition-all"
+                        />
+                        <button className="text-slate-400 hover:text-violet-500 transition-colors p-1">
+                            <Icon.Mic c="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={sendChatMessage}
+                            disabled={!inputMsg.trim()}
+                            className="bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 text-white rounded-xl p-2 transition-all flex items-center justify-center"
+                        >
+                            <Icon.Send c="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: FastTrackPanel — AI Fast Track Logger (ข้อ 3)
+        // ============================================================
+        function FastTrackPanel({ onClose, employees, showNotification, onProcessed }) {
+            const [fastText, setFastText] = useState('');
+            const [isProcessing, setIsProcessing] = useState(false);
+            const [isRecording, setIsRecording] = useState(false);
+            const now = new Date();
+            const hour = now.getHours();
+            const isOtTime = hour >= 17;
+
+            const processFastTrackAI = () => {
+                if (!fastText.trim()) {
+                    showNotification('กรุณาพิมพ์ข้อความก่อนประมวลผลครับ', 'error');
+                    return;
+                }
+                setIsProcessing(true);
+                showNotification('🧠 AI กำลังวิเคราะห์ข้อความและจับคู่ชื่อพนักงาน...', 'success');
+
+                setTimeout(() => {
+                    setIsProcessing(false);
+                    showNotification('✅ ประมวลผลสำเร็จ! ข้อมูลถูกเติมในแบบฟอร์มแล้ว', 'success');
+                    onProcessed && onProcessed({ success: true });
+                    onClose();
+                }, 2000);
+            };
+
+            const handleMic = () => {
+                if (!isRecording) {
+                    setIsRecording(true);
+                    showNotification('🎙️ กำลังฟัง... พูดรายงานประจำวันได้เลยครับ', 'success');
+                    setTimeout(() => {
+                        setIsRecording(false);
+                        setFastText('ช่างบอย กับ ช่างอ้น เข้าไซต์บางนา เลิกงานทุ่มครึ่ง โอทีสามชั่วโมง');
+                        showNotification('✅ แปลงเสียงเป็นข้อความสำเร็จ!', 'success');
+                    }, 3000);
+                } else {
+                    setIsRecording(false);
+                }
+            };
+
+            return (
+                <div className="bg-white rounded-2xl shadow-sm border-2 border-indigo-300 overflow-hidden">
+                    <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">⚡</span>
+                            <div>
+                                <div className="text-white font-bold text-sm">AI Fast Track Logger</div>
+                                <div className="text-indigo-200 text-xs">บันทึกเวลาด้วยการพิมพ์หรือพูด</div>
+                            </div>
+                        </div>
+                        <button onClick={onClose} className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-all">
+                            <Icon.X c="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    {isOtTime && (
+                        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2">
+                            <span className="text-amber-600 text-sm">✨</span>
+                            <span className="text-amber-700 text-xs font-medium">ตอนนี้หลัง 17:00 น. — ระบบจะคำนวณ OT อัตโนมัติ</span>
+                        </div>
+                    )}
+
+                    <div className="p-4 space-y-3">
+                        <div className="relative">
+                            <textarea
+                                value={fastText}
+                                onChange={e => setFastText(e.target.value)}
+                                rows={4}
+                                placeholder={'ตัวอย่าง: "ช่างบอย กับ ช่างอ้น เข้าไซต์บางนา เลิกงานทุ่มครึ่ง โอทีสามชั่วโมง"'}
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 italic focus:outline-none focus:border-indigo-400 focus:bg-white resize-none transition-all"
+                            />
+                            <button
+                                onClick={handleMic}
+                                className={`absolute bottom-3 right-3 p-1.5 rounded-lg transition-all ${isRecording ? 'bg-red-100 text-red-500 pulse-mic' : 'bg-indigo-50 text-indigo-400 hover:text-indigo-600'}`}
+                            >
+                                <Icon.Mic c="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <button
+                            onClick={processFastTrackAI}
+                            disabled={!fastText.trim() || isProcessing}
+                            className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white shadow-md hover:shadow-lg"
+                        >
+                            {isProcessing ? (
+                                <><div className="spinner" style={{width:'16px',height:'16px',borderTopColor:'white'}}></div> กำลังประมวลผล...</>
+                            ) : (
+                                <><Icon.Sparkles c="w-4 h-4" /> ประมวลผลด้วย AI ✨</>
+                            )}
+                        </button>
+
+                        <div className="bg-blue-50 rounded-xl border border-blue-100 p-3">
+                            <div className="flex items-start gap-2">
+                                <span className="text-blue-600 text-sm mt-0.5">📢</span>
+                                <div className="flex-1">
+                                    <div className="text-blue-800 font-semibold text-xs mb-1">ประกาศสั่งงานและเซฟตี้วันนี้</div>
+                                    <div className="text-blue-700 text-xs leading-relaxed">
+                                        เรียนหัวหน้าชุดทุกคน: วันนี้โปรเจกพระรามสาม 3 มีงานติดตั้งโครงเหล็กใหญ่ ขอให้สวมใส่เข็มขัดกันตก (Full Harness) ตลอดเวลา และห้ามเข้าใกล้พื้นที่ที่รับรองยกของเด็ดขาด!
+                                    </div>
+                                    <button
+                                        onClick={() => showNotification('🌐 AI กำลังแปลประกาศเป็น 4 ภาษา...', 'success')}
+                                        className="mt-2 bg-blue-600 text-white text-xs px-3 py-1 rounded-lg hover:bg-blue-700 transition-all flex items-center gap-1"
+                                    >
+                                        <Icon.Sparkles c="w-3 h-3" /> แปลประกาศ 4 ภาษาด้วย AI
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: QuickActionsGrid — 6 ปุ่มทางลัด (ข้อ 2 ปรับปรุง)
+        // ============================================================
+        function QuickActionsGrid({ setActiveTab, isAdmin, showNotification }) {
+            const quickItems = [
+                {
+                    id: 1, label: 'คลังเอกสาร', sub: 'เอกสารโครงการ', icon: '📁',
+                    color: 'bg-amber-50 border-amber-200', iconBg: 'bg-amber-100', textColor: 'text-amber-700',
+                    action: () => setActiveTab('archive')
+                },
+                {
+                    id: 2, label: 'คู่มือการใช้งาน', sub: 'วิธีใช้ระบบ', icon: '📖',
+                    color: 'bg-sky-50 border-sky-200', iconBg: 'bg-sky-100', textColor: 'text-sky-700',
+                    action: () => showNotification('📖 กำลังเปิดคู่มือการใช้งาน...', 'success')
+                },
+                {
+                    id: 3, label: 'AI ทั่วไป', sub: 'เครื่องมือ AI', icon: '✨',
+                    color: 'bg-violet-50 border-violet-200', iconBg: 'bg-violet-100', textColor: 'text-violet-700',
+                    action: () => setActiveTab('ai-tools')
+                },
+                {
+                    id: 4, label: 'AI แอดมิน', sub: 'AI สำหรับผู้ดูแล', icon: '🤖',
+                    color: isAdmin ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200',
+                    iconBg: isAdmin ? 'bg-rose-100' : 'bg-slate-100',
+                    textColor: isAdmin ? 'text-rose-700' : 'text-slate-400',
+                    action: () => {
+                        if (!isAdmin) { showNotification('🔒 เฉพาะ Admin เท่านั้น', 'error'); return; }
+                        setActiveTab('ai-admin');
+                    }
+                },
+                {
+                    id: 5, label: 'ตรวจเช็คสัปดาห์', sub: 'กลุ่ม / รายบุคคล', icon: '📋',
+                    color: 'bg-emerald-50 border-emerald-200', iconBg: 'bg-emerald-100', textColor: 'text-emerald-700',
+                    action: () => setActiveTab('stats')
+                },
+                {
+                    id: 6, label: 'ตั้งค่า (แอดมิน)', sub: 'Config ระบบ', icon: '⚙️',
+                    color: isAdmin ? 'bg-slate-100 border-slate-300' : 'bg-slate-50 border-slate-200',
+                    iconBg: 'bg-slate-200',
+                    textColor: isAdmin ? 'text-slate-700' : 'text-slate-400',
+                    action: () => {
+                        if (!isAdmin) { showNotification('🔒 เฉพาะ Admin เท่านั้น', 'error'); return; }
+                        setActiveTab('admin');
+                    }
+                },
+            ];
+
+            return (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+                        🔲 ทางลัดระบบ (QUICK ACCESS)
+                    </div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {quickItems.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={item.action}
+                                className={`${item.color} border rounded-xl p-2.5 text-left hover:scale-105 active:scale-95 transition-all duration-150 relative`}
+                            >
+                                {(item.id === 4 || item.id === 6) && !isAdmin && (
+                                    <div className="absolute top-1.5 right-1.5">
+                                        <Icon.Lock c="w-3 h-3 text-slate-400" />
+                                    </div>
+                                )}
+                                <div className={`${item.iconBg} w-8 h-8 rounded-lg flex items-center justify-center mb-1.5 text-base`}>
+                                    {item.icon}
+                                </div>
+                                <div className={`${item.textColor} font-bold text-xs leading-tight`}>{item.label}</div>
+                                <div className="text-slate-400 text-[10px] mt-0.5">{item.sub}</div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: RecentActivityTable — ตารางความเคลื่อนไหวล่าสุด
+        // ============================================================
+        function RecentActivityTable({ dailyReports }) {
+            const recent = dailyReports.slice(0, 5);
+            if (recent.length === 0) return null;
+
+            return (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                        <span className="font-bold text-slate-700 text-sm">ความเคลื่อนไหวการเข้างานล่าสุด</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                            <thead className="bg-slate-50">
+                                <tr>
+                                    <th className="px-3 py-2 text-left text-slate-500 font-semibold">ชื่อ-นามสกุล</th>
+                                    <th className="px-3 py-2 text-left text-slate-500 font-semibold">ไซต์งาน</th>
+                                    <th className="px-2 py-2 text-center text-slate-500 font-semibold">เข้า</th>
+                                    <th className="px-2 py-2 text-center text-slate-500 font-semibold">ออก</th>
+                                    <th className="px-2 py-2 text-center text-slate-500 font-semibold">OT</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {recent.map((r, i) => (
+                                    <tr key={r.id || i} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-3 py-2.5">
+                                            <div className="font-medium text-slate-700 leading-tight" style={{maxWidth:'120px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                                                {r.names}
+                                            </div>
+                                            <div className="text-slate-400 text-[10px]">{r.date}</div>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-slate-600">{r.site}</td>
+                                        <td className="px-2 py-2.5 text-center text-slate-600">{r.timeIn}</td>
+                                        <td className="px-2 py-2.5 text-center text-slate-600">{r.timeOut}</td>
+                                        <td className="px-2 py-2.5 text-center">
+                                            {r.otTotal > 0
+                                                ? <span className="bg-orange-100 text-orange-600 font-bold px-1.5 py-0.5 rounded-lg">{r.otTotal}h</span>
+                                                : <span className="text-slate-300">-</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: DashboardTab — หน้าหลัก Dashboard
+        // ============================================================
+        function DashboardTab({ employees, dailyReports, safetyHistory, stats, setActiveTab, isAdmin, userEmail, showNotification }) {
+            const [showFastTrack, setShowFastTrack] = useState(false);
+
+            const activeEmployeeCount = employees.filter(e => e.K === 'ปกติ').length;
+            const activeSitesCount = new Set(dailyReports.map(r => r.site).filter(Boolean)).size;
+
+            const today = new Date();
+            const dateStr = today.toLocaleDateString('th-TH', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <StatSlider stats={stats} activeEmployeeCount={activeEmployeeCount} activeSitesCount={activeSitesCount} />
+
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-5 text-white shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        <div className="absolute bottom-0 left-0 w-24 h-24 bg-violet-500/10 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+
+                        <div className="relative z-10">
+                            <div className="text-sky-400 text-xs font-semibold uppercase tracking-widest mb-1">แดชบอร์ดจัดการไซต์งาน</div>
+                            <h2 className="text-2xl font-extrabold text-white mb-1">ภาพรวมประจำวัน</h2>
+                            <p className="text-slate-400 text-xs mb-4">{dateStr}</p>
+
+                            <div className="grid grid-cols-2 gap-2.5">
+                                <button
+                                    onClick={() => setActiveTab('app')}
+                                    className="py-2.5 rounded-xl border border-white/30 text-white text-xs font-semibold hover:bg-white/10 active:bg-white/20 transition-all flex items-center justify-center gap-1.5"
+                                >
+                                    <Icon.Phone c="w-4 h-4" /> บันทึกเวลา (AI)
+                                </button>
+
+                                <button
+                                    onClick={() => setShowFastTrack(!showFastTrack)}
+                                    className={`py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${showFastTrack ? 'bg-indigo-500 border-transparent text-white shadow-lg fast-track-active' : 'border border-white/30 text-white hover:bg-white/10 active:bg-white/20'}`}
+                                >
+                                    ⚡ AI Fast Track Logger
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {showFastTrack && (
+                        <FastTrackPanel
+                            onClose={() => setShowFastTrack(false)}
+                            employees={employees}
+                            showNotification={showNotification}
+                            onProcessed={(result) => { setActiveTab('app'); }}
+                        />
+                    )}
+
+                    {!showFastTrack && (
+                        <>
+                            <InlineChatbot isAdmin={isAdmin} userEmail={userEmail} showNotification={showNotification} />
+                            <QuickActionsGrid setActiveTab={setActiveTab} isAdmin={isAdmin} showNotification={showNotification} />
+                        </>
+                    )}
+
+                    <RecentActivityTable dailyReports={dailyReports} />
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: AiToolsTab — เครื่องมือ AI ทั่วไป
+        // ============================================================
+        function AiToolsTab({ showNotification }) {
+            const tools = [
+                {
+                    id: 'material', icon: '🧱',
+                    title: 'AI ประเมินวัสดุก่อสร้าง',
+                    desc: 'พิมพ์รายละเอียดงานเพื่อให้ AI ประเมินวัสดุฯ ที่จำเป็นอย่างรวดเร็ว',
+                    placeholder: 'เช่น: คอกำแพงสูงอยู่แล้ว กว้าง 3 เมตร สูง 2.5 เมตร',
+                    buttonText: '🧱 คำนวณวัสดุและเครื่องมือด้วย AI',
+                    btnClass: 'bg-violet-600 hover:bg-violet-700',
+                    geminiAction: 'estimateMaterials'
+                },
+                {
+                    id: 'report', icon: '📄',
+                    title: 'AI ร่างรายงานปัญหา/อุบัติเหตุ',
+                    desc: 'เล่าเหตุการณ์สั้นๆ ภาษาไทย AI จะร่างเป็นเอกสารรายงานแบบมาตรการ',
+                    placeholder: 'เช่น: รถแบคโฮชนสายไฟโยธาตอบต้นนายของ ไม่มีเหตุบาดเจ็บ แต่ไฟดับทั้งไซต์',
+                    buttonText: '📄 สร้างรายงานทางการด้วย AI',
+                    btnClass: 'bg-rose-600 hover:bg-rose-700',
+                    geminiAction: 'draftAccidentReport'
+                },
+                {
+                    id: 'safety', icon: '📢',
+                    title: 'AI ร่างสคริปต์ Safety Talk',
+                    desc: 'พิมพ์หัวข้อความปลอดภัย ให้ AI ร่างสคริปต์สั้นๆ พร้อมตัวอย่างเหมาะกับหน้างาน',
+                    placeholder: 'เช่น: การทำงานบนที่สูง ต้องใช้เครื่องมือไฟฟ้า',
+                    buttonText: '📢 ร่างสคริปต์ด้วมบรมด้วย AI',
+                    btnClass: 'bg-blue-600 hover:bg-blue-700',
+                    geminiAction: 'draftSafetyTalk'
+                },
+                {
+                    id: 'wbs', icon: '📋',
+                    title: 'AI แยกย่อยขั้นตอนงาน (WBS)',
+                    desc: 'พิมพ์เป้าหมาย ให้ AI แตกงานเป็นรายการ (Task Breakdown) พร้อมกำหนดเวลา',
+                    placeholder: 'เช่น: ตกแต่งห้องครัวฐาน 50 ตัว. ติดตั้งระบบก่อน น้ำก็',
+                    buttonText: '📋 แยกขั้นตอนงานด้วย AI',
+                    btnClass: 'bg-emerald-600 hover:bg-emerald-700',
+                    geminiAction: 'generateWBS'
+                },
+                {
+                    id: 'translate', icon: '🌐',
+                    title: 'AI ล่ามแปลภาษาหน้างาน',
+                    desc: 'แปลข้อความสั่งงานเป็นภาษาเพื่อน พร้อมคำพูดในภาษาไทยให้ผู้งานได้',
+                    placeholder: 'เช่น: ระวังขอบจุดตกดันสูง',
+                    buttonText: '🌐 แปลข้อความด้วย AI',
+                    btnClass: 'bg-teal-600 hover:bg-teal-700',
+                    lang: true,
+                    geminiAction: 'translateSiteCommand'
+                },
+                {
+                    id: 'weather', icon: '🌤️',
+                    title: 'AI วิเคราะห์แผนตามสภาพอากาศ',
+                    desc: 'ใส่พยากรณ์อากาศ เพื่อ AI แนะนำกำหนดการหรืองานที่ควรชะลอ/เร่งตามสภาพ',
+                    placeholder: 'เช่น: วันนี้ฝนตกหนัก มีพายุฤดูร้อน และมีพิษสงกรณ์กระแทก',
+                    buttonText: '🌤️ วิเคราะห์แผนตามสภาพอากาศ',
+                    btnClass: 'bg-orange-500 hover:bg-orange-600',
+                    geminiAction: 'analyzeWeatherPlan'
+                },
+            ];
+
+            const [inputs, setInputs] = useState({});
+            const [langs, setLangs] = useState({});
+            const [loadings, setLoadings] = useState({});
+            const [results, setResults] = useState({});
+
+            const handleProcess = (tool) => {
+                const text = inputs[tool.id] || '';
+                if (!text.trim()) { showNotification('กรุณาพิมพ์ข้อมูลก่อนครับ', 'error'); return; }
+                setLoadings(prev => ({...prev, [tool.id]: true}));
+                showNotification(`🧠 AI กำลังประมวลผล "${tool.title}"...`, 'success');
+
+                setTimeout(() => {
+                    setLoadings(prev => ({...prev, [tool.id]: false}));
+                    setResults(prev => ({...prev, [tool.id]: `✅ ผลลัพธ์จาก "${tool.title}":\n\nระบบ AI ประมวลผลสำเร็จแล้วครับ นี่คือตัวอย่างผลลัพธ์จาก Gemini 2.5 Pro สำหรับข้อมูลที่คุณให้มา การเชื่อมต่อจริงต้องผ่าน GAS backend ครับ`}));
+                    showNotification('✅ ประมวลผลสำเร็จ!', 'success');
+                }, 2000);
+            };
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-2xl">🔮</span>
+                        <div>
+                            <h2 className="text-xl font-extrabold text-slate-800">เครื่องมือช่าง AI</h2>
+                            <p className="text-xs text-slate-500">Gemini 2.5 Pro Powered — ใช้งานได้ทันที ไม่ต้องออกจากแอพ</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {tools.map(tool => (
+                            <div key={tool.id} className="ai-tool-card bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                <div className="p-4 space-y-3">
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-2xl">{tool.icon}</span>
+                                        <div>
+                                            <div className="font-bold text-slate-800 text-sm">{tool.title}</div>
+                                            <div className="text-slate-500 text-xs mt-0.5">{tool.desc}</div>
+                                        </div>
+                                    </div>
+
+                                    {tool.lang && (
+                                        <select
+                                            value={langs[tool.id] || 'พม่า'}
+                                            onChange={e => setLangs(prev => ({...prev, [tool.id]: e.target.value}))}
+                                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-700 outline-none focus:border-teal-400"
+                                        >
+                                            <option value="พม่า">ภาษาพม่า (Myanmar)</option>
+                                            <option value="กัมพูชา">ภาษาเขมร (Khmer)</option>
+                                            <option value="ลาว">ภาษาลาว (Lao)</option>
+                                            <option value="อังกฤษ">ภาษาอังกฤษ (English)</option>
+                                        </select>
+                                    )}
+
+                                    <textarea
+                                        value={inputs[tool.id] || ''}
+                                        onChange={e => setInputs(prev => ({...prev, [tool.id]: e.target.value}))}
+                                        rows={3}
+                                        placeholder={tool.placeholder}
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 italic resize-none focus:outline-none focus:border-violet-400 focus:bg-white transition-all"
+                                    />
+
+                                    <button
+                                        onClick={() => handleProcess(tool)}
+                                        disabled={loadings[tool.id]}
+                                        className={`w-full ${tool.btnClass} text-white py-2.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50`}
+                                    >
+                                        {loadings[tool.id]
+                                            ? <><div className="spinner" style={{width:'16px',height:'16px',borderTopColor:'white'}}></div> กำลังประมวลผล...</>
+                                            : <><Icon.Sparkles c="w-4 h-4" /> {tool.buttonText}</>
+                                        }
+                                    </button>
+
+                                    {results[tool.id] && (
+                                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                                            <div className="text-xs font-semibold text-slate-500 mb-1">ผลลัพธ์จาก AI:</div>
+                                            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{results[tool.id]}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: AiAdminTab — AI Tools สำหรับแอดมินเท่านั้น
+        // ============================================================
+        function AiAdminTab({ isAdmin, userEmail, showNotification }) {
+            if (!isAdmin) {
+                return (
+                    <div className="flex flex-col items-center justify-center py-16 space-y-4">
+                        <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center">
+                            <Icon.Lock c="w-10 h-10 text-red-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-700">ไม่มีสิทธิ์เข้าถึง</h3>
+                        <p className="text-slate-500 text-sm text-center max-w-xs">
+                            หน้านี้สำหรับ Admin เท่านั้น<br/>
+                            <span className="text-red-500 font-medium">{userEmail}</span><br/>
+                            ไม่ถูกตั้งค่าเป็น Admin ในระบบ
+                        </p>
+                        <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-200 text-xs text-slate-500">
+                            💡 ติดต่อผู้ดูแลระบบเพื่อขอสิทธิ์ (Column Z ใน Sheet)
+                        </div>
+                    </div>
+                );
+            }
+
+            const adminTools = [
+                {
+                    id: 'summary', icon: '📊', title: 'สรุปรายงานประจำสัปดาห์',
+                    desc: 'AI สรุปผลลัพธ์การทำงานทั้งสัปดาห์ พร้อมจุดบกพร่องที่ต้องแก้ไข',
+                    placeholder: 'ระบุช่วงวันที่ต้องการสรุป เช่น: 20-26 พฤษภาคม 2026',
+                    btnClass: 'bg-indigo-600 hover:bg-indigo-700',
+                },
+                {
+                    id: 'hr', icon: '👔', title: 'วิเคราะห์สถิติ HR',
+                    desc: 'AI วิเคราะห์แนวโน้มขาด/ลา/OT เพื่อวางแผนกำลังคนล่วงหน้า',
+                    placeholder: 'ใส่ปัญหา HR ที่ต้องการวิเคราะห์...',
+                    btnClass: 'bg-rose-600 hover:bg-rose-700',
+                },
+                {
+                    id: 'announce', icon: '📣', title: 'ร่างประกาศสั่งงาน',
+                    desc: 'AI ร่างประกาศสั่งงานและเซฟตี้ประจำวัน ในรูปแบบมืออาชีพ',
+                    placeholder: 'เล่าสถานการณ์ที่ต้องการประกาศ...',
+                    btnClass: 'bg-amber-600 hover:bg-amber-700',
+                },
+            ];
+
+            const [inputs, setInputs] = useState({});
+            const [loadings, setLoadings] = useState({});
+            const [results, setResults] = useState({});
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-2xl">🤖</span>
+                        <div>
+                            <h2 className="text-xl font-extrabold text-slate-800">AI แอดมิน</h2>
+                            <p className="text-xs text-slate-500">เข้าสู่ระบบในฐานะ Admin: <span className="text-violet-600 font-medium">{userEmail}</span></p>
+                        </div>
+                        <div className="ml-auto bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                            <Icon.Check c="w-3 h-3" /> ยืนยันแล้ว
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        {adminTools.map(tool => (
+                            <div key={tool.id} className="ai-tool-card bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-2xl">{tool.icon}</span>
+                                    <div>
+                                        <div className="font-bold text-slate-800 text-sm">{tool.title}</div>
+                                        <div className="text-slate-500 text-xs mt-0.5">{tool.desc}</div>
+                                    </div>
+                                </div>
+                                <textarea
+                                    value={inputs[tool.id] || ''}
+                                    onChange={e => setInputs(prev => ({...prev, [tool.id]: e.target.value}))}
+                                    rows={3}
+                                    placeholder={tool.placeholder}
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 italic resize-none focus:outline-none focus:border-violet-400 transition-all"
+                                />
+                                <button
+                                    onClick={() => {
+                                        setLoadings(prev => ({...prev, [tool.id]: true}));
+                                        setTimeout(() => {
+                                            setLoadings(prev => ({...prev, [tool.id]: false}));
+                                            setResults(prev => ({...prev, [tool.id]: `✅ ผลลัพธ์จาก "${tool.title}" (Admin Mode):\n\nระบบ AI ประมวลผลสำเร็จแล้ว นี่คือตัวอย่างผลลัพธ์ที่จะได้รับเมื่อเชื่อมต่อ GAS จริง`}));
+                                        }, 2000);
+                                    }}
+                                    disabled={loadings[tool.id]}
+                                    className={`w-full ${tool.btnClass} text-white py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50`}
+                                >
+                                    {loadings[tool.id]
+                                        ? <><div className="spinner" style={{width:'16px',height:'16px',borderTopColor:'white'}}></div> กำลังประมวลผล...</>
+                                        : <><Icon.Sparkles c="w-4 h-4" /> ประมวลผลด้วย AI (Admin)</>
+                                    }
+                                </button>
+                                {results[tool.id] && (
+                                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-sm text-slate-700 whitespace-pre-wrap">
+                                        {results[tool.id]}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: AppTab — แอพลงเวลา AI (เชื่อมต่อระบบเซิร์ฟเวอร์จริง)
+        // ============================================================
+        function AppTab({ employees, dailyReports, setDailyReports, showNotification }) {
+            const activeEmployees = employees.filter(e => e.K === 'ปกติ');
+            const residenceGroups = [...new Set(activeEmployees.map(e => e.J).filter(Boolean))].sort();
+
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            const [site, setSite] = useState('');
+            const [group, setGroup] = useState('');
+            const [timeIn, setTimeIn] = useState('08:00');
+            const [timeOut, setTimeOut] = useState('17:00');
+            const [workH, setWorkH] = useState('8');
+            const [otH, setOtH] = useState('0');
+            const [selected, setSelected] = useState([]);
+            const [inputText, setInputText] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [isRecording, setIsRecording] = useState(false);
+
+            useEffect(() => {
+                if (timeIn && timeOut) {
+                    const [iH,iM] = timeIn.split(':').map(Number);
+                    const [oH,oM] = timeOut.split(':').map(Number);
+                    let total = (oH + oM/60) - (iH + iM/60);
+                    if (total < 0) total += 24;
+                    if (total > 0) {
+                        let net = total >= 5 ? total - 1 : total;
+                        let ot = 0, norm = net;
+                        if (oH >= 17 && iH < 17) { ot = (oH + oM/60) - 17; norm = net - ot; }
+                        else if (net > 8) { ot = net - 8; norm = 8; }
+                        const r = n => Math.round(n*2)/2;
+                        setWorkH(r(Math.max(0,norm)).toString());
+                        setOtH(r(Math.max(0,ot)).toString());
+                    }
+                }
+            }, [timeIn, timeOut]);
+
+            const filteredEmp = group ? activeEmployees.filter(e => e.J === group) : activeEmployees;
+
+            const toggleEmp = id => setSelected(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+            const selectAll = () => setSelected(selected.length === filteredEmp.length ? [] : filteredEmp.map(e=>e.N));
+
+            // ✨ ปรับปรุงลอจิกการบันทึกข้อมูลเพื่อส่งขึ้นฐานข้อมูล Google Sheets จริง
+            const save = (e) => {
+                e.preventDefault();
+                if (!date || !site || selected.length === 0) {
+                    showNotification('กรุณาเลือกไซต์งานและพนักงานก่อนบันทึก', 'error'); return;
+                }
+                
+                const selectedNamesArray = selected.map(id => {
+                    const emp = activeEmployees.find(e => e.N === id);
+                    return emp ? emp.E : id;
+                });
+
+                const payload = {
+                    date: date,
+                    site: site,
+                    normalHour: Number(workH),
+                    otTotal: Number(otH),
+                    employees: selectedNamesArray
+                };
+
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    showNotification('⏳ กำลังจัดทำรายการส่งข้อมูลเข้าสู่ตารางฐานข้อมูล...', 'success');
+                    
+                    google.script.run
+                        .withSuccessHandler((response) => {
+                            if (response.success) {
+                                showNotification(`✅ ${response.message}`, 'success');
+                                setDailyReports(prev => [{
+                                    id: Date.now(), date, site, timeIn, timeOut,
+                                    normalHour: Number(workH), otTotal: Number(otH),
+                                    employeesCount: selected.length, names: selectedNamesArray.join(', ')
+                                }, ...prev]);
+                                setSelected([]);
+                            } else {
+                                showNotification(`❌ ไม่สามารถทำการบันทึกได้: ${response.message}`, 'error');
+                            }
+                        })
+                        .withFailureHandler((error) => {
+                            showNotification(`❌ เครือข่ายระบบขัดข้อง: ${error.message}`, 'error');
+                        })
+                        .saveDailyReport(payload);
+                } else {
+                    const names = selectedNamesArray.join(', ');
+                    setDailyReports(prev => [{
+                        id: Date.now(), date, site, timeIn, timeOut,
+                        normalHour: Number(workH), otTotal: Number(otH),
+                        employeesCount: selected.length, names
+                    }, ...prev]);
+                    showNotification(`✅ [โหมดจำลองออฟไลน์] บันทึกสำเร็จ ${selected.length} คน ไซต์: ${site}`);
+                    setSelected([]);
+                }
+            };
+
+            const processAI = () => {
+                if (!inputText.trim()) { showNotification('กรุณาพิมพ์ข้อมูลก่อน', 'error'); return; }
+                setIsLoading(true);
+                showNotification('🧠 AI กำลังวิเคราะห์...', 'success');
+                setTimeout(() => {
+                    setIsLoading(false);
+                    setDate('2026-05-25'); setSite('บางละมุง'); setGroup('บางละมุง');
+                    setTimeIn('08:00'); setTimeOut('19:00'); setSelected(['52093','52096']);
+                    showNotification('✅ AI ประมวลผลสำเร็จ!', 'success');
+                }, 1800);
+            };
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <h2 className="text-xl font-extrabold text-slate-800">📱 ลงเวลาทำงาน (AI)</h2>
+
+                    <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm p-4 space-y-3">
+                        <div className="font-bold text-indigo-700 text-sm flex items-center gap-2">
+                            <Icon.Sparkles c="w-4 h-4" /> AI บันทึกเวลาด้วยข้อความ
+                        </div>
+                        <textarea
+                            value={inputText}
+                            onChange={e => setInputText(e.target.value)}
+                            rows={3}
+                            placeholder={'เช่น: "ช่างบอย กับ ช่างอ้น เข้าไซต์บางนา เลิกงานทุ่มครึ่ง โอทีสามชั่วโมง"'}
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 italic resize-none focus:outline-none focus:border-indigo-400 transition-all"
+                        />
+                        <div className="flex gap-2">
+                            <button onClick={() => { setIsRecording(!isRecording); if (!isRecording) { showNotification('🎙️ กำลังฟัง...', 'success'); setTimeout(() => { setIsRecording(false); setInputText('ช่างวินวิน กับ ช่างโมนัน เข้าไซต์พระราม 3 เลิกงาน 5 โมงเย็น'); showNotification('✅ แปลงเสียงสำเร็จ!', 'success'); }, 3000); } }}
+                                className={`px-3 py-2 rounded-xl text-sm font-semibold flex items-center gap-1 transition-all ${isRecording ? 'bg-red-100 text-red-600 pulse-mic' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
+                                <Icon.Mic c="w-4 h-4" /> {isRecording ? 'กำลังฟัง...' : 'พูด'}
+                            </button>
+                            <button onClick={processAI} disabled={isLoading}
+                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 text-white py-2 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all">
+                                {isLoading ? <><div className="spinner" style={{width:'14px',height:'14px',borderTopColor:'white'}}></div> ประมวลผล...</> : <><Icon.Sparkles c="w-4 h-4" /> ประมวลผล AI</>}
+                            </button>
+                        </div>
+                    </div>
+
+                    <form onSubmit={save} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                        <div className="font-bold text-slate-700 text-sm">📝 บันทึกด้วยตนเอง</div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">วันที่</label>
+                                <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-slate-50" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">ไซต์งาน</label>
+                                <select value={site} onChange={e=>setSite(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-slate-50">
+                                    <option value="">เลือกไซต์...</option>
+                                    {MOCK_SITES.map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">เวลาเข้า</label>
+                                <input type="time" value={timeIn} onChange={e=>setTimeIn(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-slate-50" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">เวลาออก</label>
+                                <input type="time" value={timeOut} onChange={e=>setTimeOut(e.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-slate-50" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">ชั่วโมงปกติ</label>
+                                <input type="number" value={workH} onChange={e=>setWorkH(e.target.value)} step="0.5" min="0"
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-slate-50" />
+                            </div>
+                            <div>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">OT (ชม.)</label>
+                                <input type="number" value={otH} onChange={e=>setOtH(e.target.value)} step="0.5" min="0"
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 bg-slate-50" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="text-xs font-semibold text-slate-500">แคมป์พนักงาน</label>
+                                <select value={group} onChange={e=>setGroup(e.target.value)}
+                                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs focus:outline-none bg-slate-50">
+                                    <option value="">ทั้งหมด</option>
+                                    {residenceGroups.map(g=><option key={g} value={g}>{g}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-slate-500">เลือก {selected.length}/{filteredEmp.length} คน</span>
+                                <button type="button" onClick={selectAll} className="text-xs text-indigo-600 hover:underline font-medium">
+                                    {selected.length === filteredEmp.length ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                                {filteredEmp.map(emp => (
+                                    <button key={emp.N} type="button" onClick={() => toggleEmp(emp.N)}
+                                        className={`py-2 px-3 rounded-xl text-xs font-medium text-left transition-all border ${selected.includes(emp.N) ? 'bg-indigo-600 border-transparent text-white' : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-indigo-300'}`}>
+                                        <div className="font-semibold truncate">{emp.C} {emp.D}</div>
+                                        <div className={`text-[10px] ${selected.includes(emp.N) ? 'text-indigo-200' : 'text-slate-400'}`}>{emp.N}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <button type="submit"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-lg">
+                            <Icon.Save c="w-4 h-4" /> บันทึกรายงานประจำวัน
+                        </button>
+                    </form>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: StatsTab — สถิติและกราฟ
+        // ============================================================
+        function StatsTab({ dailyReports, safetyHistory, stats }) {
+            useEffect(() => {
+                const ctx1 = document.getElementById('chart-sites')?.getContext('2d');
+                if (ctx1) {
+                    const map = {};
+                    dailyReports.forEach(r => { map[r.site] = (map[r.site]||0) + r.normalHour + r.otTotal; });
+                    new Chart(ctx1, {
+                        type: 'bar',
+                        data: { labels: Object.keys(map), datasets: [{ label: 'ชั่วโมงสะสม', data: Object.values(map), backgroundColor: 'rgba(99,102,241,0.75)', borderColor: 'rgb(79,70,229)', borderWidth: 1.5, borderRadius: 8 }] },
+                        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+                    });
+                }
+                const ctx2 = document.getElementById('chart-safety')?.getContext('2d');
+                if (ctx2) {
+                    const sorted = [...safetyHistory].reverse();
+                    new Chart(ctx2, {
+                        type: 'line',
+                        data: { labels: sorted.map(h=>h.date), datasets: [{ label: 'PPE %', data: sorted.map(h=>parseFloat(h.complianceScore)), borderColor:'rgb(16,185,129)', backgroundColor:'rgba(16,185,129,0.1)', tension:0.3, fill:true, borderWidth:3 }] },
+                        options: { responsive:true, maintainAspectRatio:false, scales:{y:{min:0,max:100}} }
+                    });
+                }
+            }, []);
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <h2 className="text-xl font-extrabold text-slate-800">📊 สถิติและรายงาน</h2>
+                    <div className="grid grid-cols-2 gap-3">
+                        {[
+                            {label:'OT สะสม',value:`${stats.otTotal} ชม.`,icon:'⏰',bg:'bg-orange-50',text:'text-orange-600'},
+                            {label:'ชม.ปกติสะสม',value:`${stats.normalTotal} ชม.`,icon:'🕐',bg:'bg-blue-50',text:'text-blue-600'},
+                            {label:'PPE เฉลี่ย',value:`${stats.safetyAvg}%`,icon:'🛡️',bg:'bg-emerald-50',text:'text-emerald-600'},
+                            {label:'รายงานทั้งหมด',value:dailyReports.length,icon:'📋',bg:'bg-violet-50',text:'text-violet-600'},
+                        ].map((s,i) => (
+                            <div key={i} className={`${s.bg} rounded-2xl p-3 text-center`}>
+                                <div className="text-2xl mb-1">{s.icon}</div>
+                                <div className={`text-xl font-extrabold ${s.text}`}>{s.value}</div>
+                                <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+                        <div className="font-bold text-slate-700 text-sm mb-3">ชั่วโมงทำงานตามไซต์งาน</div>
+                        <div style={{height:'200px'}}><canvas id="chart-sites"></canvas></div>
+                    </div>
+                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+                        <div className="font-bold text-slate-700 text-sm mb-3">แนวโน้ม PPE Compliance</div>
+                        <div style={{height:'160px'}}><canvas id="chart-safety"></canvas></div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: ArchiveTab — คลังข้อมูลรายงาน
+        // ============================================================
+        function ArchiveTab({ dailyReports, setDailyReports, showNotification }) {
+            const [search, setSearch] = useState('');
+            const filtered = dailyReports.filter(r =>
+                r.names.toLowerCase().includes(search.toLowerCase()) ||
+                r.site.toLowerCase().includes(search.toLowerCase())
+            );
+
+            const exportCSV = () => {
+                let csv = "\uFEFFลำดับ,วันที่,ไซต์งาน,เวลาเข้า,เวลาออก,ชั่วโมงปกติ,OT,จำนวนคน,รายชื่อ\r\n";
+                dailyReports.forEach((r,i) => {
+                    csv += [i+1, r.date, `"${r.site}"`, r.timeIn, r.timeOut, r.normalHour, r.otTotal, r.employeesCount, `"${r.names}"`].join(',') + '\r\n';
+                });
+                const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `รายงาน_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                showNotification('📥 ดาวน์โหลด CSV สำเร็จ!', 'success');
+            };
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-xl font-extrabold text-slate-800">🗄️ คลังข้อมูล</h2>
+                        <button onClick={exportCSV} className="bg-emerald-600 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 hover:bg-emerald-700 transition-all">
+                            <Icon.Download c="w-3.5 h-3.5" /> Export CSV
+                        </button>
+                    </div>
+                    <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อหรือไซต์งาน..."
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-400 bg-white" />
+                    <div className="space-y-2">
+                        {filtered.length === 0 && <div className="text-center text-slate-400 py-8 text-sm">ไม่พบข้อมูล</div>}
+                        {filtered.map(r => (
+                            <div key={r.id} className="bg-white rounded-xl border border-slate-100 p-3 flex items-start gap-3 shadow-sm">
+                                <div className="bg-indigo-50 text-indigo-600 rounded-lg p-2"><Icon.Clock c="w-4 h-4" /></div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-slate-700 text-sm">{r.site} — {r.date}</div>
+                                    <div className="text-xs text-slate-500 mt-0.5">{r.timeIn} - {r.timeOut} | {r.employeesCount} คน {r.otTotal > 0 && <span className="text-orange-500 font-medium">OT {r.otTotal}ชม.</span>}</div>
+                                    <div className="text-xs text-slate-400 mt-0.5 truncate">{r.names}</div>
+                                </div>
+                                <button onClick={() => { if(confirm('ลบรายการนี้?')) { setDailyReports(prev=>prev.filter(x=>x.id!==r.id)); showNotification('ลบเรียบร้อย','error'); } }}
+                                    className="text-red-400 hover:text-red-600 p-1 transition-colors">
+                                    <Icon.Trash c="w-4 h-4" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // COMPONENT: AdminTab — จัดการพนักงาน (CRUD)
+        // ============================================================
+        function AdminTab({ employees, setEmployees, isAdmin, showNotification }) {
+            const [showAdd, setShowAdd] = useState(false);
+            const [form, setForm] = useState({B:'นาย',C:'',D:'',J:'',K:'ปกติ',N:''});
+            const [search, setSearch] = useState('');
+
+            if (!isAdmin) {
+                return (
+                    <div className="flex flex-col items-center justify-center py-16 space-y-4">
+                        <Icon.Lock c="w-16 h-16 text-slate-300" />
+                        <p className="text-slate-400 text-sm">เฉพาะ Admin เท่านั้น</p>
+                    </div>
+                );
+            }
+
+            const addEmp = (e) => {
+                e.preventDefault();
+                if (!form.C || !form.D || !form.N) { showNotification('กรอกข้อมูลให้ครบ','error'); return; }
+                if (employees.some(x=>x.N===form.N)) { showNotification('รหัสซ้ำในระบบ','error'); return; }
+                setEmployees(prev => [...prev, {...form, A:prev.length+2, E:`${form.B} ${form.C} ${form.D}`}]);
+                showNotification(`เพิ่ม ${form.C} ${form.D} สำเร็จ`);
+                setForm({B:'นาย',C:'',D:'',J:'',K:'ปกติ',N:''}); setShowAdd(false);
+            };
+
+            const filtered = employees.filter(e =>
+                e.E?.toLowerCase().includes(search.toLowerCase()) || e.N?.includes(search)
+            );
+
+            return (
+                <div className="space-y-4 pb-6">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-xl font-extrabold text-slate-800">👤 จัดการพนักงาน</h2>
+                        <button onClick={()=>setShowAdd(!showAdd)} className={`text-xs font-semibold px-3 py-2 rounded-xl transition-all ${showAdd ? 'bg-slate-200 text-slate-600' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                            {showAdd ? '✕ ยกเลิก' : '+ เพิ่มพนักงาน'}
+                        </button>
+                    </div>
+
+                    {showAdd && (
+                        <form onSubmit={addEmp} className="bg-indigo-50 rounded-2xl border border-indigo-200 p-4 space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                {[{l:'คำนำหน้า',k:'B',type:'select',opts:['นาย','นาง','น.ส.','ด.ช.','ด.ญ.']},
+                                  {l:'ชื่อ',k:'C',type:'text'},{l:'นามสกุล',k:'D',type:'text'},
+                                  {l:'แคมป์/ที่พัก',k:'J',type:'text'},{l:'รหัส 5 หลัก',k:'N',type:'text'},
+                                  {l:'สถานะ',k:'K',type:'select',opts:['ปกติ','ลาออก']}].map(f => (
+                                    <div key={f.k}>
+                                        <label className="text-xs font-semibold text-slate-600 mb-1 block">{f.l}</label>
+                                        {f.type === 'select'
+                                            ? <select value={form[f.k]} onChange={e=>setForm(p=>({...p,[f.k]:e.target.value}))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none bg-white">{f.opts.map(o=><option key={o}>{o}</option>)}</select>
+                                            : <input type="text" value={form[f.k]} onChange={e=>setForm(p=>({...p,[f.k]:e.target.value}))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none bg-white" />
+                                        }
+                                    </div>
+                                ))}
+                            </div>
+                            <button type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all">บันทึกพนักงานใหม่</button>
+                        </form>
+                    )}
+
+                    <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อหรือรหัสพนักงาน..."
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-400 bg-white" />
+
+                    <div className="space-y-2">
+                        {filtered.map(emp => (
+                            <div key={emp.N} className="bg-white rounded-xl border border-slate-100 p-3 flex items-center gap-3 shadow-sm">
+                                <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold ${emp.K==='ปกติ' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-400'}`}>
+                                    {emp.C?.[0]}
+                                </div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-slate-700 text-sm">{emp.E}</div>
+                                    <div className="text-xs text-slate-400">รหัส: {emp.N} | แคมป์: {emp.J}</div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <button onClick={() => { setEmployees(prev=>prev.map(e=>e.N===emp.N?{...e,K:e.K==='ปกติ'?'ลาออก':'ปกติ'}:e)); showNotification(`ปรับสถานะ ${emp.C} แล้ว`); }}
+                                        className={`text-xs px-2 py-1 rounded-lg font-medium transition-all ${emp.K==='ปกติ' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-500 hover:bg-red-200'}`}>
+                                        {emp.K}
+                                    </button>
+                                    <button onClick={() => { if(confirm(`ลบ ${emp.E}?`)) { setEmployees(prev=>prev.filter(e=>e.N!==emp.N)); showNotification('ลบเรียบร้อย','error'); } }}
+                                        className="text-red-400 hover:text-red-600 p-1 ml-1 transition-colors">
+                                        <Icon.Trash c="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================
+        // MAIN APP COMPONENT
+        // ============================================================
+        function App() {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+            const [notification, setNotification] = useState(null);
+
+            // --- Admin state จาก GAS gas-data-bridge ---
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [userEmail, setUserEmail] = useState('engineer@smartworksite.local');
+
+            // --- Data states ---
+            const [employees, setEmployees] = useState(() => {
+                const local = localStorage.getItem('sw_emp');
+                return local ? JSON.parse(local) : INITIAL_MOCK_DATA;
+            });
+            const [dailyReports, setDailyReports] = useState(() => {
+                const local = localStorage.getItem('sw_reports');
+                return local ? JSON.parse(local) : [
+                    {id:1,date:'2026-05-20',site:'บางละมุง',timeIn:'08:00',timeOut:'19:00',normalHour:8,otTotal:2,employeesCount:2,names:'นาย วินวิน ทัน, น.ส. โมนัน ดา'},
+                    {id:2,date:'2026-05-21',site:'ปรานบุรี',timeIn:'08:00',timeOut:'17:00',normalHour:8,otTotal:0,employeesCount:1,names:'นาย แทน สุขสม'},
+                    {id:3,date:'2026-05-22',site:'นิมิตใหม่',timeIn:'08:00',timeOut:'18:30',normalHour:8,otTotal:1.5,employeesCount:2,names:'นาย มนตรี ใสภาค, นาย สมพร หิตะรัตน์'},
+                ];
+            });
+            const [safetyHistory, setSafetyHistory] = useState(() => {
+                const local = localStorage.getItem('sw_safety');
+                return local ? JSON.parse(local) : [
+                    {id:1,date:'2026-05-22',site:'บางละมุง',complianceScore:'100%',workersDetected:2,summary:'PPE ครบถ้วน'},
+                    {id:2,date:'2026-05-23',site:'นิมิตใหม่',complianceScore:'66%',workersDetected:3,summary:'พบขาดเสื้อสะท้อนแสง'},
+                ];
+            });
+
+            useEffect(() => { localStorage.setItem('sw_emp', JSON.stringify(employees)); }, [employees]);
+            useEffect(() => { localStorage.setItem('sw_reports', JSON.stringify(dailyReports)); }, [dailyReports]);
+            useEffect(() => { localStorage.setItem('sw_safety', JSON.stringify(safetyHistory)); }, [safetyHistory]);
+
+            const showNotification = useCallback((msg, type = 'success') => {
+                setNotification({msg, type});
+                setTimeout(() => setNotification(null), 4000);
+            }, []);
+
+            // ========================================================
+            // INIT & SYNC DATA: ดึงข้อมูลพนักงานสดตรงจาก ไฟล์ DATA ผ่าน API Backend
+            // ========================================================
+            useEffect(() => {
+                try {
+                    const bridge = document.getElementById('gas-data-bridge');
+                    if (bridge) {
+                        const config = JSON.parse(bridge.textContent.trim());
+                        setIsAdmin(config.isAdmin || false);
+                        setUserEmail(config.userEmail || 'engineer@smartworksite.local');
+                    }
+                } catch(err) {
+                    console.warn('gas-data-bridge init error:', err);
+                }
+
+                // เรียก API ดึงข้อมูลจาก Google Sheets (ไฟล์ DATA) โดยตรงแทน Static Array ป้องกันข้อมูลตกหล่น
+                if (typeof google !== 'undefined' && google.script && google.script.run) {
+                    google.script.run
+                        .withSuccessHandler((liveData) => {
+                            if (liveData && liveData.length > 0) {
+                                setEmployees(liveData);
+                                showNotification('🔄 อัปเดตข้อมูลพนักงานสดจาก ไฟล์ DATA สำเร็จ', 'success');
+                            }
+                        })
+                        .withFailureHandler((err) => {
+                            console.error('Failed to fetch live employee database:', err);
+                        })
+                        .getEmployeeData();
+                }
+
+                let link = document.querySelector("link[rel~='icon']");
+                if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+                link.href = LOGO_URL;
+            }, [showNotification]);
+
+            const stats = useMemo(() => ({
+                otTotal: dailyReports.reduce((s,r) => s + Number(r.otTotal||0), 0),
+                normalTotal: dailyReports.reduce((s,r) => s + Number(r.normalHour||0), 0),
+                activeSitesCount: new Set(dailyReports.map(r=>r.site).filter(Boolean)).size,
+                safetyAvg: safetyHistory.length > 0
+                    ? Math.round(safetyHistory.reduce((s,h) => s+parseFloat(h.complianceScore),0) / safetyHistory.length)
+                    : 100,
+            }), [dailyReports, safetyHistory]);
+
+            const systemMenus = [
+                { id:'dashboard',  label:'Dashboard',          icon:<Icon.Dashboard c="w-5 h-5"/>, color:'text-blue-600',   bg:'bg-blue-50' },
+                { id:'app',        label:'ลงเวลา (AI)',         icon:<Icon.Phone c="w-5 h-5"/>,    color:'text-emerald-600',bg:'bg-emerald-50' },
+                { id:'ai-tools',   label:'AI ทั่วไป',           icon:<Icon.Sparkles c="w-5 h-5"/>, color:'text-violet-600', bg:'bg-violet-50' },
+                { id:'ai-admin',   label:'AI แอดมิน',           icon:<Icon.Bot c="w-5 h-5"/>,     color:isAdmin?'text-rose-600':'text-slate-400', bg:isAdmin?'bg-rose-50':'bg-slate-50', adminOnly:true },
+                { id:'stats',      label:'สถิติ',               icon:<Icon.Chart c="w-5 h-5"/>,    color:'text-amber-600',  bg:'bg-amber-50' },
+                { id:'archive',    label:'คลังข้อมูล',          icon:<Icon.Folder c="w-5 h-5"/>,   color:'text-sky-600',    bg:'bg-sky-50' },
+                { id:'admin',      label:'จัดการพนักงาน',       icon:<Icon.Users c="w-5 h-5"/>,    color:'text-slate-600',  bg:'bg-slate-100', adminOnly:true },
+            ];
+
+            const handleTabChange = (id) => {
+                if (systemMenus.find(m=>m.id===id)?.adminOnly && !isAdmin) {
+                    showNotification(`🔒 ไม่มีสิทธิ์ — ${userEmail} ไม่ใช่ Admin`, 'error');
+                    return;
+                }
+                setActiveTab(id);
+                setIsMobileMenuOpen(false);
+            };
+
+            const initials = userEmail.split('@')[0].substring(0,2).toUpperCase();
+
+            return (
+                <div className="min-h-screen bg-slate-100">
+                    {/* ========== HEADER ========== */}
+                    <header className="bg-slate-900 text-white sticky top-0 z-50 shadow-xl">
+                        <div className="flex items-center justify-between px-4 py-3">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors lg:hidden">
+                                    <Icon.Menu c="w-5 h-5" />
+                                </button>
+                                <img src={LOGO_URL} alt="Logo" className="w-8 h-8 rounded-lg object-cover" onError={e=>{e.target.style.display='none'}} />
+                                <div>
+                                    <div className="font-extrabold text-sm tracking-wide">SMART WORKSITE</div>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
+                                        <span className="text-emerald-400 text-[10px] font-semibold">Enterprise AI V.6</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                                <button className="relative text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+                                    <Icon.Bell c="w-5 h-5" />
+                                    <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full"></div>
+                                </button>
+                                <button className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+                                    <Icon.Gear c="w-5 h-5" />
+                                </button>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isAdmin ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-indigo-500'}`} title={userEmail}>
+                                    {initials}
+                                </div>
+                            </div>
+                        </div>
+
+                        {isMobileMenuOpen && (
+                            <div className="bg-slate-800 border-t border-slate-700 px-4 py-2 flex flex-col gap-1">
+                                {systemMenus.map(m => (
+                                    <button key={m.id} onClick={() => handleTabChange(m.id)}
+                                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeTab===m.id ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5'}`}>
+                                        <span className={m.color}>{m.icon}</span>
+                                        {m.label}
+                                        {m.adminOnly && !isAdmin && <Icon.Lock c="w-3 h-3 text-slate-500 ml-auto" />}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </header>
+
+                    <div className="flex max-w-5xl mx-auto">
+                        {/* ========== SIDEBAR (desktop) ========== */}
+                        <aside className="hidden lg:flex flex-col w-56 min-h-screen bg-white border-r border-slate-100 shadow-sm sticky top-[60px] h-screen pt-6 px-3 gap-1">
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 mb-2">เมนูหลัก</div>
+                            {systemMenus.map(m => (
+                                <button key={m.id} onClick={() => handleTabChange(m.id)}
+                                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${activeTab===m.id ? `${m.bg} ${m.color} font-bold` : 'text-slate-600 hover:bg-slate-50'}`}>
+                                    <span className={activeTab===m.id ? m.color : 'text-slate-400'}>{m.icon}</span>
+                                    {m.label}
+                                    {m.adminOnly && !isAdmin && <Icon.Lock c="w-3 h-3 text-slate-300 ml-auto" />}
+                                </button>
+                            ))}
+                            <div className="mt-auto mb-4 px-2 py-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <div className="text-[10px] text-slate-400 font-semibold mb-0.5">ผู้ใช้งาน</div>
+                                <div className="text-xs text-slate-600 truncate">{userEmail}</div>
+                                {isAdmin && <div className="text-[10px] text-amber-600 font-bold mt-0.5">👑 Admin</div>}
+                            </div>
+                        </aside>
+
+                        {/* ========== MAIN CONTENT ========== */}
+                        <main className="flex-1 p-4 lg:p-6 max-w-xl mx-auto w-full">
+                            {activeTab === 'dashboard' && (
+                                <DashboardTab employees={employees} dailyReports={dailyReports}
+                                    safetyHistory={safetyHistory} stats={stats} setActiveTab={handleTabChange}
+                                    isAdmin={isAdmin} userEmail={userEmail} showNotification={showNotification} />
+                            )}
+                            {activeTab === 'app' && (
+                                <AppTab employees={employees} dailyReports={dailyReports}
+                                    setDailyReports={setDailyReports} showNotification={showNotification} />
+                            )}
+                            {activeTab === 'ai-tools' && (
+                                <AiToolsTab showNotification={showNotification} />
+                            )}
+                            {activeTab === 'ai-admin' && (
+                                <AiAdminTab isAdmin={isAdmin} userEmail={userEmail} showNotification={showNotification} />
+                            )}
+                            {activeTab === 'stats' && (
+                                <StatsTab dailyReports={dailyReports} safetyHistory={safetyHistory} stats={stats} />
+                            )}
+                            {activeTab === 'archive' && (
+                                <ArchiveTab dailyReports={dailyReports} setDailyReports={setDailyReports} showNotification={showNotification} />
+                            )}
+                            {activeTab === 'admin' && (
+                                <AdminTab employees={employees} setEmployees={setEmployees}
+                                    isAdmin={isAdmin} showNotification={showNotification} />
+                            )}
+                        </main>
+                    </div>
+
+                    {/* ========== BOTTOM NAV (mobile) ========== */}
+                    <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 shadow-xl z-40 flex">
+                        {systemMenus.slice(0,5).map(m => (
+                            <button key={m.id} onClick={() => handleTabChange(m.id)}
+                                className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition-all ${activeTab===m.id ? m.color : 'text-slate-400'}`}>
+                                <span className={`${activeTab===m.id ? 'scale-110' : ''} transition-transform`}>{m.icon}</span>
+                                <span className="text-[10px] font-medium">{m.label}</span>
+                                {activeTab===m.id && <div className={`absolute bottom-0 w-6 h-0.5 ${m.bg.replace('bg-','bg-').replace('-50','-500')} rounded-full`}></div>}
+                            </button>
+                        ))}
+                    </nav>
+
+                    {/* ========== TOAST NOTIFICATION ========== */}
+                    {notification && (
+                        <div className={`fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl text-white text-sm font-semibold flex items-center gap-2.5 transition-all max-w-xs text-center ${notification.type === 'error' ? 'bg-red-600' : 'bg-slate-900'}`}>
+                            {notification.type === 'error' ? '⚠️' : '✅'} {notification.msg}
+                        </div>
+                    )}
+
+                    <div className="h-20 lg:h-0"></div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
