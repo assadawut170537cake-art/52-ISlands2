@@ -46,7 +46,7 @@ function doGet(e) {
     });
 
     const template = HtmlService.createTemplate(
-      HtmlService.createHtmlOutputFromFile('SmartWorksiteDashboard').getContent()
+      HtmlService.createHtmlOutputFromFile('index').getContent()
         .replace(
           /(<div id="gas-data-bridge"[^>]*>)([\s\S]*?)(<\/div>)/,
           `$1${appConfig}$3`
@@ -60,7 +60,7 @@ function doGet(e) {
 
   } catch (err) {
     logError("doGet_WebApp", err.message, "");
-    return HtmlService.createHtmlOutputFromFile('SmartWorksiteDashboard')
+    return HtmlService.createHtmlOutputFromFile('index')
       .setTitle('Smart Worksite System V.6');
   }
 }

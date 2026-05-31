@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>52 Islands Group - Smart Worksite</title>
+  <link rel="icon" type="image/svg+xml" href="https://i.ibb.co/N3w3P9pS/52.png" />
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+  
+  <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <script src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.0/umd/Recharts.min.js"></script>
+
+  <script src="https://unpkg.com/lucide@0.292.0/dist/umd/lucide.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Sarabun:wght@300;400;500;600;700;800&display=swap');
+    body { font-family: 'Sarabun', 'Inter', sans-serif; background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
+    .rotate-animation { animation: spin 2s linear infinite; transform-origin: center; box-sizing: border-box; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    /* Loading Spinner */
+    .loader-spin { border: 4px solid #e2e8f0; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+  </style>
+</head>
+<body>
+  
+  <div id="root">
+    <div style="display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; gap:16px; color:#64748b;">
+      <div class="loader-spin"></div>
+      <p style="font-family:'Sarabun', sans-serif; font-weight:600;">กำลังประมวลผลระบบ Smart Worksite...</p>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+    
+    // --- Error Boundary (ระบบดักจับและแสดงข้อผิดพลาดบนหน้าจอ) ---
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null, info: null };
+      }
+      static getDerivedStateFromError(error) { return { hasError: true, error }; }
+      componentDidCatch(error, info) { console.error("System Error:", error, info); this.setState({ info }); }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+              <div className="bg-white p-6 rounded-2xl shadow-xl border border-red-100 max-w-xl w-full">
+                <h2 className="text-xl font-bold text-red-600 mb-2">⚠️ เกิดข้อผิดพลาดในระบบ</h2>
+                <p className="text-sm text-slate-600 mb-4">หน้าเว็บไม่สามารถแสดงผลได้ กรุณาตรวจสอบโค้ดตามแจ้งเตือนด้านล่าง:</p>
+                <div className="bg-slate-100 p-4 rounded-xl text-xs font-mono text-slate-800 overflow-x-auto whitespace-pre-wrap">
+                  {this.state.error && this.state.error.toString()}
+                  <br/><br/>
+                  {this.state.info && this.state.info.componentStack}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    // --- Safe Icon Wrapper (ป้องกันปัญหา Icon = undefined 100%) ---
+    const createIcon = (iconName) => ({ size = 24, className = '', color = 'currentColor', strokeWidth = 2, ...props }) => {
+      if (window.lucide && window.lucide.icons && window.lucide.icons[iconName]) {
+        const svgString = window.lucide.icons[iconName].toSvg({ width: size, height: size, class: className, stroke: color, 'stroke-width': strokeWidth });
+        return <span className={className} dangerouslySetInnerHTML={{ __html: svgString }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} {...props} />;
+      }
+      return <span className={className} style={{ width: size, height: size, display: 'inline-block', backgroundColor: '#e2e8f0', borderRadius: '50%' }} {...props}></span>;
+    };
+
+    // ประกาศใช้งาน Icon ทั้งหมดที่อยู่ในระบบ
+    const LayoutDashboard = createIcon('layout-dashboard');
+    const Calendar = createIcon('calendar');
+    const Database = createIcon('database');
+    const BookOpen = createIcon('book-open');
+    const MessageSquare = createIcon('message-square');
+    const Smartphone = createIcon('smartphone');
+    const BarChart3 = createIcon('bar-chart-3');
+    const ChevronRight = createIcon('chevron-right');
+    const Menu = createIcon('menu');
+    const X = createIcon('x');
+    const Bell = createIcon('bell');
+    const Search = createIcon('search');
+    const CheckCircle2 = createIcon('check-circle-2');
+    const AlertCircle = createIcon('alert-circle');
+    const Save = createIcon('save');
+    const Users = createIcon('users');
+    const Mic = createIcon('mic');
+    const Upload = createIcon('upload');
+    const ArrowLeft = createIcon('arrow-left');
+    const ShareIcon = createIcon('share-2'); 
+    const CheckSquare = createIcon('check-square');
+    const Bot = createIcon('bot');
+    const Cpu = createIcon('cpu');
+    const PieChart = createIcon('pie-chart');
+    const Folder = createIcon('folder');
+    const Sparkles = createIcon('sparkles');
+    const Lock = createIcon('lock');
+    const ClipboardList = createIcon('clipboard-list');
+    const Settings = createIcon('settings');
+    const Receipt = createIcon('receipt');
+    const AlertTriangle = createIcon('alert-triangle');
+    const UserMinus = createIcon('user-minus');
+    const Clock = createIcon('clock');
+    const Camera = createIcon('camera');
+
+    // --- Safe Recharts (ป้องกันหน้าขาวกรณีกราฟมีปัญหา) ---
+    const Recharts = window.Recharts || {};
+    const BarChart = Recharts.BarChart || 'div';
+    const Bar = Recharts.Bar || 'div';
+    const XAxis = Recharts.XAxis || 'div';
+    const YAxis = Recharts.YAxis || 'div';
+    const Tooltip = Recharts.Tooltip || 'div';
+    const ResponsiveContainer = Recharts.ResponsiveContainer || 'div';
+    const CartesianGrid = Recharts.CartesianGrid || 'div';
+    const Legend = Recharts.Legend || 'div';
+
+    // -----------------------------------------------------
+    // WorkspaceChat (Mock Component)
+    // -----------------------------------------------------
+    const WorkspaceChat = () => (
+      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+        <MessageSquare size={48} className="mb-4 text-slate-300" />
+        <h3 className="font-bold text-lg text-slate-700">Google Chat Integration</h3>
+        <p className="text-sm">โมดูลนี้พร้อมสำหรับการเชื่อมต่อ API กับ Workspace Chat</p>
+      </div>
+    );
+
+    // -----------------------------------------------------
+    // Logo Component
+    // -----------------------------------------------------
+    const Logo52 = ({ className = "" }) => (
+      <div className={`flex flex-col items-center justify-center bg-white p-2 rounded-xl border border-slate-100 ${className} shadow-sm`}>
+        <div className="text-red-600 font-black leading-none tracking-tighter" style={{ fontSize: '3em' }}>
+          <span style={{ letterSpacing: '-0.05em' }}>5</span>2
+        </div>
+        <div className="text-[#1e3a8a] font-extrabold uppercase leading-none tracking-tight flex" style={{ fontSize: '1em', marginTop: '-0.1em' }}>
+          <span className="text-red-600">I</span>SLANDS
+        </div>
+        <div className="text-[#1e3a8a] font-bold uppercase leading-none tracking-[0.35em]" style={{ fontSize: '0.45em', marginTop: '0.25em' }}>
+          GROUP
+        </div>
+      </div>
+    );
+
+    // -----------------------------------------------------
+    // Mock Data & System
+    // -----------------------------------------------------
+    let MOCK_DATA_FILE = [
+      { A: 1, B: 'นาย', C: 'สมชาย', D: 'ใจดี', E: 'นายสมชาย ใจดี', J: 'แคมป์ A', K: 'ปกติ', N: 'EMP001' },
+      { A: 2, B: 'นางสาว', C: 'สมหญิง', D: 'รักดี', E: 'นางสาวสมหญิง รักดี', J: 'แคมป์ A', K: 'ปกติ', N: 'EMP002' },
+      { A: 3, B: 'นาย', C: 'มานะ', D: 'อดทน', E: 'นายมานะ อดทน', J: 'แคมป์ B', K: 'ปกติ', N: 'EMP003' },
+      { A: 4, B: 'นาย', C: 'วีระ', D: 'กล้าหาญ', E: 'นายวีระ กล้าหาญ', J: 'แคมป์ B', K: 'ลาออก', N: 'EMP004' }
+    ];
+
+    const updateMockDataStatus = (empId, newStatus) => {
+      MOCK_DATA_FILE = MOCK_DATA_FILE.map(emp => emp.N === empId ? { ...emp, K: newStatus } : emp);
+      window.dispatchEvent(new Event('mockDataUpdated'));
+    };
+
+    const MOCK_SITES = ['สาธุประดิษฐ์', 'บางละมุง', 'ปราณบุรี', 'นิมิตใหม่'];
+
+    const auditLogHistory = [];
+    let globalSyncProgress = { total: 0, current: 0, syncing: false };
+
+    const updateSyncProgress = (progress) => {
+      globalSyncProgress = progress;
+      window.dispatchEvent(new CustomEvent('syncProgressUpdated', { detail: progress }));
+    };
+
+    const syncToGAS = async (logData) => {
+      try {
+        const payload = {
+          timestamp: new Date().toISOString(),
+          action: logData.action,
+          module: logData.module,
+          user: logData.user,
+          data: JSON.stringify(logData.data)
+        };
+
+        auditLogHistory.unshift(payload);
+        window.dispatchEvent(new Event('auditLogUpdated'));
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          return new Promise((resolve) => {
+             google.script.run
+                .withSuccessHandler(() => resolve(true))
+                .withFailureHandler(() => resolve(false))
+                .logAuditEvent(logData.action, JSON.stringify(logData.data), logData.user);
+          });
+        }
+        return true;
+      } catch (error) {
+        return false;
+      }
+    };
+
+    // -----------------------------------------------------
+    // Components
+    // -----------------------------------------------------
+    const Dashboard = ({ setActiveTab, t, lang }) => {
+      const [isMicActive, setIsMicActive] = useState(false);
+      const [voiceText, setVoiceText] = useState('');
+
+      return (
+        <div className="space-y-3 pb-24 md:pb-6 font-sans">
+          <div className="bg-white rounded-[20px] p-4 shadow-sm border border-slate-100/60 relative">
+            <div className="flex justify-between items-start">
+               <div>
+                 <p className="text-slate-500 font-bold text-xs mb-1">{t('ผู้ใช้งาน')}</p>
+                 <h2 className="text-2xl font-black text-[#0f172a] tracking-tight mb-1">Guest</h2>
+                 <p className="text-slate-400 text-xs font-medium">{t('ไม่พบข้อมูลอีเมล')}</p>
+               </div>
+            </div>
+          </div>
+
+          <div className="bg-[#e2e4e9]/50 rounded-3xl p-5 shadow-sm border border-slate-200/50 mt-4">
+            <h3 className="text-[#3b82f6] font-bold text-sm tracking-wide mb-4 flex items-center gap-2">
+               <div className="w-2 h-2 rounded-full bg-blue-500"></div> ความเคลื่อนไหวการเข้างานล่าสุด
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px] font-sans">
+                <thead>
+                  <tr className="text-slate-500"><th className="pb-2">ชื่อ-นามสกุล</th><th className="pb-2">ไซต์งาน</th><th className="pb-2 text-center">เข้า-ออก</th></tr>
+                </thead>
+                <tbody className="text-slate-700">
+                  <tr className="border-t border-slate-200/60">
+                    <td className="py-2.5"><p className="font-bold">นาย วินวิน ทัน</p></td>
+                    <td className="py-2.5 font-medium">บางละมุง</td>
+                    <td className="py-2.5 text-center font-mono">08:00-19:00</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mt-6">
+             <button onClick={() => setActiveTab('app')} className="bg-[#0B1221] rounded-2xl shadow-sm flex flex-col justify-between p-4 min-h-[140px] relative overflow-hidden group text-left">
+                <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center mb-2"><Clock size={20} className="text-indigo-400" /></div>
+                <div className="mt-auto"><span className="text-white font-bold text-[14px]">บันทึกเวลา</span></div>
+             </button>
+
+             {isMicActive ? (
+                <div className="bg-[#6f56ff] rounded-2xl shadow-sm flex flex-col text-left overflow-hidden min-h-[140px] w-full relative">
+                   <button onClick={() => setIsMicActive(false)} className="absolute top-1 right-1 text-white/50 hover:text-white p-1 z-10"><X size={12}/></button>
+                   <div className="bg-slate-100 p-2 flex-1 flex flex-col gap-2 mt-8">
+                     <div className="relative flex-1 flex">
+                       <textarea className="w-full h-full min-h-[50px] bg-white rounded-lg p-2 pr-6 text-[9px] text-slate-700 focus:outline-none resize-none" placeholder="พูดเพื่อบันทึก..." value={voiceText} onChange={e => setVoiceText(e.target.value)} autoFocus />
+                     </div>
+                     <button className="w-full bg-[#6f56ff] text-white py-1.5 rounded-lg font-bold text-[10px] flex justify-center items-center gap-1.5"><Sparkles size={11} /> วิเคราะห์ AI</button>
+                   </div>
+                </div>
+             ) : (
+               <button onClick={() => setIsMicActive(true)} className="bg-white rounded-[20px] shadow-sm flex flex-col items-center justify-center p-4 min-h-[140px] group border border-slate-100/50 text-center">
+                  <div className="w-14 h-14 rounded-[16px] text-indigo-600 flex items-center justify-center bg-slate-50 group-hover:bg-indigo-600 group-hover:text-white transition-all mb-3"><Mic size={24} /></div>
+                  <span className="text-[#312e81] font-black text-[13px] block">สั่งงานด้วยเสียง</span>
+               </button>
+             )}
+          </div>
+        </div>
+      );
+    };
+
+    const TimeAttendanceApp = ({ showToast, setActiveTab }) => {
+      const [date, setDate] = useState(() => (new Date(Date.now() - ((new Date()).getTimezoneOffset() * 60000))).toISOString().split('T')[0]);
+      const [site, setSite] = useState('');
+      const [housing, setHousing] = useState('');
+      const [selectedEmps, setSelectedEmps] = useState([]);
+      const [timeIn, setTimeIn] = useState('08:00');
+      const [timeOut, setTimeOut] = useState('17:00');
+      const [normalHours, setNormalHours] = useState('8');
+      const [otHours, setOtHours] = useState('0');
+
+      useEffect(() => {
+        if (timeIn && timeOut) {
+          const [inH, inM] = timeIn.split(':').map(Number);
+          const [outH, outM] = timeOut.split(':').map(Number);
+          let diff = (outH + outM / 60) - (inH + inM / 60);
+          if (diff < 0) diff += 24; 
+          let workHours = diff >= 5 ? diff - 1 : diff; 
+          let normal = workHours > 8 ? 8 : (workHours > 0 ? workHours : 0);
+          let ot = workHours > 8 ? workHours - 8 : 0;
+          setNormalHours(Number.isInteger(normal) ? normal.toString() : normal.toFixed(1));
+          setOtHours(ot > 0 ? (Number.isInteger(ot) ? ot.toString() : ot.toFixed(1)) : '0');
+        }
+      }, [timeIn, timeOut]);
+
+      const activeEmps = useMemo(() => MOCK_DATA_FILE.filter(emp => emp.K === 'ปกติ'), []);
+      const housingOptions = useMemo(() => Array.from(new Set(activeEmps.map(e => e.J))).sort(), [activeEmps]);
+      const groupEmps = useMemo(() => housing ? activeEmps.filter(emp => emp.J === housing) : [], [activeEmps, housing]);
+
+      const handleShareAndSubmit = async (e) => {
+        e.preventDefault();
+        if (!date || !site || !housing) { showToast('กรุณากรอกข้อมูลให้ครบ', 'error'); return; }
+        if (selectedEmps.length === 0) { showToast('กรุณาเลือกพนักงานอย่างน้อย 1 คน', 'error'); return; }
+
+        await syncToGAS({ action: 'TIME_ATTENDANCE_SUBMIT', module: 'TimeAttendance', user: 'Admin', data: { date, site, housing, selectedEmps } });
+        showToast('บันทึกสำเร็จ', 'success');
+        setSelectedEmps([]);
+      };
+
+      return (
+        <div className="max-w-3xl mx-auto space-y-6 pb-24 md:pb-6">
+          <div className="flex items-center gap-3 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+            <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center"><Smartphone className="text-blue-500" /></div>
+            <div><h2 className="text-lg font-black text-slate-800 tracking-tight">ระบบลงเวลาคนงาน</h2></div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 space-y-6">
+            <section className="space-y-4">
+              <h3 className="text-sm font-bold text-slate-800 bg-slate-50 p-2.5 rounded-lg border border-slate-100">ข้อมูลลงไซต์งาน</h3>
+              <div className="grid grid-cols-1 gap-4">
+                <div><label className="block text-sm font-semibold mb-1">วันที่</label><input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full border p-2.5 rounded-lg outline-none" /></div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1">ไซต์งานหลัก</label>
+                  <select value={site} onChange={e=>setSite(e.target.value)} className="w-full border p-2.5 rounded-lg outline-none">
+                    <option value="">-- เลือกไซต์งาน --</option>
+                    {MOCK_SITES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-4 border-t pt-4">
+              <h3 className="text-sm font-bold text-emerald-800 bg-emerald-50 p-2.5 rounded-lg border border-emerald-100">กลุ่มและรายชื่อ</h3>
+              <div>
+                <label className="block text-sm font-semibold mb-1">แคมป์ที่พัก</label>
+                <select value={housing} onChange={e=>{setHousing(e.target.value); setSelectedEmps([]);}} className="w-full border p-2.5 rounded-lg outline-none">
+                  <option value="">-- เลือกแคมป์ --</option>
+                  {housingOptions.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+              
+              {housing && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                   <p className="text-sm font-bold mb-3">รายชื่อคนงาน <span className="text-emerald-600">({selectedEmps.length}/{groupEmps.length})</span></p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {groupEmps.map(emp => {
+                        const isChecked = selectedEmps.includes(emp.N);
+                        return (
+                          <label key={emp.N} className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer ${isChecked ? 'bg-emerald-50 border-emerald-400' : 'bg-white'}`}>
+                              <input type="checkbox" className="hidden" checked={isChecked} onChange={e=>e.target.checked ? setSelectedEmps(p=>[...p, emp.N]) : setSelectedEmps(p=>p.filter(id=>id!==emp.N))} />
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center ${isChecked ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-white'}`}>{isChecked && <CheckSquare size={14} />}</div>
+                              <span className="text-sm font-semibold">{emp.E}</span>
+                          </label>
+                        );
+                      })}
+                   </div>
+                </div>
+              )}
+            </section>
+
+            <button onClick={handleShareAndSubmit} disabled={selectedEmps.length === 0} className={`w-full py-3.5 rounded-xl font-bold flex justify-center items-center gap-2 ${selectedEmps.length > 0 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+              <ShareIcon size={18} /> บันทึกข้อมูล
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    const App = () => {
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+      const [toast, setToast] = useState(null);
+
+      const showToast = (message, type) => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      const t = (text) => text;
+
+      const navMenuItems = [
+        { id: 'dashboard', label: 'หน้าหลัก', icon: LayoutDashboard, iconColor: 'text-sky-400' },
+        { id: 'app', label: 'ลงเวลา', icon: Calendar, iconColor: 'text-orange-400' },
+        { id: 'database', label: 'ฐานข้อมูล', icon: Database, iconColor: 'text-emerald-400' },
+        { id: 'chat', label: 'แชท', icon: MessageSquare, iconColor: 'text-indigo-400' }
+      ];
+
+      return (
+        <div className="min-h-screen bg-slate-50 flex font-sans text-slate-800">
+          <main className="flex-1 flex flex-col w-full relative">
+            <header className="h-14 bg-[#0B1221] flex items-center justify-between px-4 sticky top-0 z-20 shadow-md">
+               <div className="flex items-center gap-3">
+                 <button className="text-slate-300" onClick={() => setIsMobileMenuOpen(true)}><Menu size={24} /></button>
+                 <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded bg-white overflow-hidden"><Logo52 className="scale-[0.3]" /></div>
+                    <div className="flex flex-col"><h2 className="text-sm font-bold text-white">SMART WORKSITE</h2></div>
+                 </div>
+               </div>
+               <button className="text-indigo-300"><Bell size={20} /></button>
+            </header>
+
+            <div className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl mx-auto w-full">
+               {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} t={t} lang="TH" />}
+               {activeTab === 'app' && <TimeAttendanceApp showToast={showToast} setActiveTab={setActiveTab} />}
+               {activeTab === 'database' && <div className="text-center p-10 font-bold text-slate-500">ส่วนจัดการ Database พร้อมเชื่อมต่อ GAS Backend</div>}
+               {activeTab === 'chat' && <WorkspaceChat />}
+            </div>
+          </main>
+
+          <div className="fixed bottom-0 left-0 w-full bg-white border-t md:hidden flex justify-between z-50 p-2 shadow-2xl">
+            {navMenuItems.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 flex flex-col items-center p-1 transition-all ${activeTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`}>
+                {React.createElement(tab.icon, { size: 22, className: "mb-1" })}
+                <span className="text-[10px] font-bold">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {toast && (
+            <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-white px-5 py-3 rounded-full shadow-xl border text-sm font-bold flex gap-2 items-center">
+               {toast.type === 'success' ? <CheckCircle2 size={18} className="text-emerald-500"/> : <AlertCircle size={18} className="text-red-500"/>}
+               {toast.message}
+            </div>
+          )}
+
+          {isMobileMenuOpen && (
+            <div className="fixed inset-0 z-50 flex">
+              <div className="fixed inset-0 bg-black/60" onClick={() => setIsMobileMenuOpen(false)}></div>
+              <div className="relative w-64 bg-[#0B1221] h-full shadow-2xl p-4">
+                <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-4 right-4 text-white"><X size={24}/></button>
+                <div className="mt-12 space-y-2">
+                  {navMenuItems.map(item => (
+                    <button key={item.id} onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }} className="w-full flex items-center gap-3 p-3 text-white hover:bg-white/10 rounded-xl">
+                      {React.createElement(item.icon, { size: 20, className: item.iconColor })}
+                      <span className="font-bold text-sm">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ErrorBoundary><App /></ErrorBoundary>);
+  </script>
+</body>
+</html>

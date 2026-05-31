@@ -44,6 +44,7 @@ function onOpen() {
     .addItem("🔄 ⚡ ซิงค์รหัสจาก GAS อัตโนมัติ (Auto API Sync)", "syncDirectFromGAS")
     .addItem("👁️ ยุบ-กางเนื้อโค้ด (Toggle Outline View)", "toggleCodeVisibility")
     .addItem('📝 บันทึกการอัปเดต (Changelog)', 'promptChangelog')
+    .addItem('📝 ตรวจสอบฟังชั้นซ้ำ (ฟังชั้นเค้ก)', 'mergeDuplicateFunctions')
     .addItem('📝 อัปเดตโค้ด (ฟังชั้นเค้ก)', 'showDevOpsInjectorSidebar')
     .addToUi();
 

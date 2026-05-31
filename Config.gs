@@ -37,7 +37,7 @@ var GLOBAL_CONFIG = {
 // ฟังก์ชันเช็ค Admin ที่แม่นยำที่สุด
 function isAdmin(userId) {
   if (!userId || typeof userId !== 'string') return false;
-  var adminConfig = getDynamicConfig("ADMIN_LINE_IDS") || GLOBAL_CONFIG.ADMIN_LINE_IDS;
+  var adminConfig = getDynamicConfig("ADMIN_LINE_IDS") || GLOBAL_CONFIG.ADMIN_LINE_IDS;EXTERNAL_DATABASE_ID
   return adminConfig.includes(userId);
 }
 

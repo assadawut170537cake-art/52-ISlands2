@@ -178,42 +178,93 @@ function getEmployeeDataFromSheet() {
 
 function extractEmployeesFromText(messageText) {
   if (!messageText) return [];
-  const activeEmployees = getEmployeeDataFromSheet();
-  const foundEmployees = [];
   
-  activeEmployees.forEach(emp => {
-    // 1. เช็คจาก Full Name ก่อน
-    if (emp.fullName && messageText.includes(emp.fullName)) {
-      foundEmployees.push(emp);
-    } else {
-      // 2. เช็ค Short Name โดยใช้ Word Boundary ป้องกันการจับคู่ชื่อสั้นที่ซ้อนอยู่ในคำอื่น
-      const regex = new RegExp("(?:^|\\s)" + emp.shortName + "(?:\\s|$)", "i");
-      if (regex.test(messageText)) {
+  // ใช้ฟังก์ชันแบบ Object (getEmployeeDataFromSheet) เป็นหลักเพื่อรองรับ Fuzzy และ Regex
+  if (typeof getEmployeeDataFromSheet === "function") {
+    const activeEmployees = getEmployeeDataFromSheet();
+    const foundEmployees = [];
+    
+    activeEmployees.forEach(emp => {
+      // 1. เช็คจาก Full Name ก่อน
+      if (emp.fullName && messageText.includes(emp.fullName)) {
         foundEmployees.push(emp);
+      } else {
+        // 2. เช็ค Short Name โดยใช้ Word Boundary ป้องกันการจับคู่ชื่อสั้นที่ซ้อนอยู่ในคำอื่น
+        if (emp.shortName) {
+          const regex = new RegExp("(?:^|\\s)" + emp.shortName + "(?:\\s|$)", "i");
+          if (regex.test(messageText)) {
+            foundEmployees.push(emp);
+          }
+        }
+      }
+    });
+    // ตัดรายชื่อที่ซ้ำกันออก (Unique Array)
+    return [...new Set(foundEmployees)];
+  } 
+  // Fallback กรณีไม่มี Object Data Sheet
+  else if (typeof getEmployeeListFromSheet === "function") {
+    var activeEmployeesList = getEmployeeListFromSheet();
+    var foundEmployeesList = [];
+    for (var i = 0; i < activeEmployeesList.length; i++) {
+      var empName = activeEmployeesList[i];
+      if (messageText.indexOf(empName) !== -1) {
+        foundEmployeesList.push(empName);
       }
     }
-  });
-  
-  // ตัดรายชื่อที่ซ้ำกันออก (Unique Array)
-  return [...new Set(foundEmployees)];
+    return [...new Set(foundEmployeesList)];
+  }
+  return [];
 }
 
-function formatResponse(staffListObjects, info) {
-  const count = staffListObjects ? staffListObjects.length : 0;
+function formatResponse(staffList, info) {
+  const count = staffList ? staffList.length : 0;
   const dateStr = info.date || "วันนี้";
   const timeStr = info.time || "รอแก้ไข";
   const siteStr = info.site || "รอแก้ไข";
-  
+
   let accomStr = info.accom;
-  // ดึงที่พักของคนแรกมาเป็น Default อัตโนมัติ หากไม่มีการระบุมา
-  if (!accomStr && count > 0) accomStr = staffListObjects[0].accom;
+
+  // ตรวจสอบข้อมูลที่พัก: หากไม่มีการส่งค่ามา ให้ไปค้นหาจากฐานข้อมูลรายบุคคล
+  if (!accomStr && count > 0) {
+    const firstStaff = staffList[0];
+    
+    // ดึงชื่อมาตรวจสอบ (รองรับทั้ง Object และ String)
+    let staffName = "";
+    if (typeof firstStaff === 'object') {
+       staffName = firstStaff.fullName || firstStaff.shortName || `${firstStaff.firstname || ""} ${firstStaff.lastname || ""}`.trim();
+    } else {
+       staffName = firstStaff;
+    }
+
+    // กรณีมีข้อมูลอยู่ใน Object อยู่แล้ว
+    if (typeof firstStaff === 'object' && firstStaff.accom) {
+       accomStr = firstStaff.accom;
+    } 
+    // กรณีต้องไปสืบค้นจาก Database ภายนอก (คอลัมน์ J)
+    else if (typeof getAccommodationByStaff === "function" && staffName) {
+      const dbAccom = getAccommodationByStaff(staffName);
+      if (dbAccom) accomStr = dbAccom;
+    }
+  }
+  
+  // หากในฐานข้อมูลไม่มีระบุไว้ ให้ใช้ค่าเริ่มต้น
   accomStr = accomStr || "รอแก้ไข";
-  
-  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n📅 วันที่: ${dateStr}\n(เวลา: ${timeStr})\nไซต์: ${siteStr}\n[ที่พัก: ${accomStr}]\n`;
-  
+
+  let msg = `✅ ตรวจพบพนักงาน ${count} คน\n`;
+  msg += `📅 วันที่: ${dateStr}\n`;
+  msg += `(เวลา: ${timeStr})\n`;
+  msg += `ไซต์: ${siteStr}\n`;
+  msg += `[ที่พัก: ${accomStr}]\n`;
+
   if (count > 0) {
-    staffListObjects.forEach((staff, index) => {
-      msg += `${index + 1}. ${staff.fullName || staff.shortName}\n`;
+    staffList.forEach((staff, index) => {
+      let name = "";
+      if (typeof staff === 'object') {
+        name = staff.fullName || staff.shortName || `${staff.firstname || ""} ${staff.lastname || ""}`.trim();
+      } else {
+        name = staff;
+      }
+      msg += `${index + 1}. ${name}\n`;
     });
   } else {
     msg += `(ไม่พบรายชื่อในรายการ)\n`;
