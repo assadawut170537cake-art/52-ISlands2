@@ -138,11 +138,62 @@ function saveDailyReport(payload) {
     }
   }
 }
+// ============================================================
+// FUNCTION: doGet
+// เปิดหน้า Web App และ inject ข้อมูลจาก GAS เข้า HTML
+// ============================================================
 function doGet(e) {
-  // โหลดหน้า index.html และตั้งค่า Viewport สำหรับมือถือ
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('Smart Worksite System')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  try {
+    // 1. ตรวจสอบพารามิเตอร์เพื่อแยกหน้า (Routing)
+    const page = e?.parameter?.page;
+    if (page === 'manual') {
+      return HtmlService.createHtmlOutputFromFile('Interactive_Manual')
+          .setTitle('คู่มือ Smart Worksite')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+          .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+    }
+
+    // 2. ดึงข้อมูลสิทธิ์และรายชื่อพนักงาน
+    const userEmail = Session.getActiveUser().getEmail();
+    const adminEmails = getAdminEmailsFromSheet();
+    const isAdmin = adminEmails.includes(userEmail.toLowerCase().trim());
+    const employees = getActiveEmployeesFromSheet();
+
+    // 3. เตรียมข้อมูลแอปพลิเคชัน (Config)
+    const appConfig = JSON.stringify({
+      isAdmin:       isAdmin,
+      userEmail:     userEmail,
+      adminEmails:   adminEmails,
+      employees:     employees,
+      employeeCount: employees.length,
+      backdateLimit: parseInt(getDynamicConfig("BACKDATE_LIMIT") || "2"),
+      isLocalDev:    false,
+      buildVersion:  "V.7", // อัปเดตให้ตรงกับเวอร์ชันปัจจุบันของระบบ
+      timestamp:     new Date().toISOString()
+    });
+
+    // 4. ฝังข้อมูล (Inject) ลงใน HTML
+    const template = HtmlService.createTemplate(
+      HtmlService.createHtmlOutputFromFile('index').getContent()
+        .replace(
+          /(<div id="gas-data-bridge"[^>]*>)([\s\S]*?)(<\/div>)/,
+          `$1${appConfig}$3`
+        )
+    );
+
+    // 5. ส่งออกหน้าเว็บหลัก
+    return HtmlService.createHtmlOutput(template.evaluate().getContent())
+      .setTitle('Smart Worksite System V.7')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+
+  } catch (err) {
+    // 6. ระบบสำรอง (Fallback) ป้องกันหน้าเว็บขาวหากมี Error 
+    logError("doGet_WebApp", err.message, "");
+    return HtmlService.createHtmlOutputFromFile('index')
+      .setTitle('SmartWorksiteDashboard (Recovery Mode)')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+  }
 }
 function fetchGoogleChatSpaces() {
   try {
