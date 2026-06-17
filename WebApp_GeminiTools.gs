@@ -33,7 +33,7 @@ function doGet(e) {
     const isAdmin = adminEmails.includes(userEmail.toLowerCase().trim());
     const employees = getActiveEmployeesFromSheet();
 
-    const appConfig = JSON.stringify({
+    const configObj = {
       isAdmin:       isAdmin,
       userEmail:     userEmail,
       adminEmails:   adminEmails,
@@ -43,25 +43,22 @@ function doGet(e) {
       isLocalDev:    false,
       buildVersion:  "V.7",
       timestamp:     new Date().toISOString()
-    });
+    };
 
-    const template = HtmlService.createTemplate(
-      HtmlService.createHtmlOutputFromFile('index').getContent()
-        .replace(
-          /(<div id="gas-data-bridge"[^>]*>)([\s\S]*?)(<\/div>)/,
-          `$1${appConfig}$3`
-        )
-    );
+    const template = HtmlService.createTemplateFromFile('index');
+    template.configParams = configObj;
 
-    return HtmlService.createHtmlOutput(template.evaluate().getContent())
+    return template.evaluate()
       .setTitle('52 Islands Group - Smart Worksite System V.7')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 
   } catch (err) {
     logError("doGet_WebApp", err.message, "");
-    return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('Smart Worksite System V.7');
+    const errTemplate = HtmlService.createTemplateFromFile('index');
+    errTemplate.configParams = { error: err.message, isLocalDev: true, isAdmin: false, userEmail: "error@system" };
+    return errTemplate.evaluate()
+      .setTitle('Smart Worksite System V.7 (Error Fallback)');
   }
 }
 

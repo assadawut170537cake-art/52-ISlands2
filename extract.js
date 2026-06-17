@@ -1,0 +1,1 @@
+const fs = require('fs'); const html = fs.readFileSync('index.html', 'utf8'); const start = html.indexOf('<script type="text/babel">'); const end = html.lastIndexOf('</script>'); if (start > -1 && end > -1) { fs.writeFileSync('temp.jsx', html.substring(start + 26, end)); console.log('Extracted'); }
