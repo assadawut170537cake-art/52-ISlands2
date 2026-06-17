@@ -41,7 +41,7 @@ function doGet(e) {
       employeeCount: employees.length,
       backdateLimit: parseInt(getDynamicConfig("BACKDATE_LIMIT") || "2"),
       isLocalDev:    false,
-      buildVersion:  "V.6",
+      buildVersion:  "V.7",
       timestamp:     new Date().toISOString()
     });
 
@@ -54,14 +54,14 @@ function doGet(e) {
     );
 
     return HtmlService.createHtmlOutput(template.evaluate().getContent())
-      .setTitle('Smart Worksite System V.6')
+      .setTitle('52 Islands Group - Smart Worksite System V.7')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 
   } catch (err) {
     logError("doGet_WebApp", err.message, "");
     return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('Smart Worksite System V.6');
+      .setTitle('Smart Worksite System V.7');
   }
 }
 
@@ -268,6 +268,51 @@ JSON format:
   } catch (err) {
     logError("processNlpTimelogFromWeb", err.message, text);
     return { error: err.message };
+  }
+}
+
+// ============================================================
+// FUNCTION: getWebAppDropdownData
+// ดึงรายชื่อไซต์งาน ที่พัก และพนักงาน สำหรับ Dropdown ใน Dashboard V.7
+// เรียกจาก SmartWorksiteDashboard: google.script.run.getWebAppDropdownData()
+// ============================================================
+function getWebAppDropdownData() {
+  try {
+    const employees = getActiveEmployeesFromSheet();
+    
+    // ดึงรายชื่อไซต์งานจาก Config หรือสร้างจากข้อมูลพนักงาน
+    const sites = [];
+    const accommodations = [];
+    const staff = [];
+    
+    const campSet = new Set();
+    employees.forEach(function(emp) {
+      if (emp.camp) campSet.add(emp.camp);
+      staff.push(emp.fullName || (emp.firstName + " " + emp.lastName));
+    });
+    
+    campSet.forEach(function(camp) {
+      accommodations.push(camp);
+    });
+    
+    // ดึง SITE_LIST จาก Dynamic Config ถ้ามี
+    var siteListConfig = getDynamicConfig("SITE_LIST") || "";
+    if (siteListConfig) {
+      siteListConfig.split(",").forEach(function(s) {
+        var trimmed = s.trim();
+        if (trimmed) sites.push(trimmed);
+      });
+    }
+    
+    return {
+      success: true,
+      sites: sites,
+      staff: staff,
+      accommodations: accommodations.sort()
+    };
+  } catch (err) {
+    logError("getWebAppDropdownData", err.message, "");
+    return { success: false, sites: [], staff: [], accommodations: [] };
   }
 }
 

@@ -6,9 +6,9 @@
  * ⚠️ แก้ไขจาก const เป็น var เพื่อให้ไฟล์อื่นในโปรเจกต์สามารถเรียกใช้งานได้ (Global Scope)
  */
 var GLOBAL_CONFIG = {
-  "LINE_CHANNEL_ACCESS_TOKEN": "Yk/bGA3NaIdbw0dT71oZXfSxgKSxTZXuz9ImKQZhKYhGYHMUww79Rrc6dAkqnRyGyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDVlC880rCPIIHmRaBGK6Wanh5Wtgq49kgkR7EwziwkTAwdB04t89/1O/w1cDnyilFU=",
-  "GEMINI_API_KEY_LINE": "AIzaSyDnOFKdSpstDLXg6NQbxA7-mG6lMbR1-w4",
-  "GEMINI_API_KEY_WEB": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
+  "LINE_CHANNEL_ACCESS_TOKEN": "",  // ⚠️ ดึงจาก Script Properties เท่านั้น (ห้ามฝังค่าจริงใน source code)
+  "GEMINI_API_KEY_LINE": "",        // ⚠️ ดึงจาก Script Properties เท่านั้น
+  "GEMINI_API_KEY_WEB": "",         // ⚠️ ดึงจาก Script Properties เท่านั้น
   "MODEL_NAME": "gemini-2.5-flash",
   "ADMIN_LINE_IDS": "U19fc3f88a0ae90bfb047e362b60e2493",
   "SYSTEM_STATUS": "ON",
@@ -37,15 +37,17 @@ var GLOBAL_CONFIG = {
 // ฟังก์ชันเช็ค Admin ที่แม่นยำที่สุด
 function isAdmin(userId) {
   if (!userId || typeof userId !== 'string') return false;
-  var adminConfig = getDynamicConfig("ADMIN_LINE_IDS") || GLOBAL_CONFIG.ADMIN_LINE_IDS;EXTERNAL_DATABASE_ID
-  return adminConfig.includes(userId);
+  var adminConfig = getDynamicConfig("ADMIN_LINE_IDS") || GLOBAL_CONFIG.ADMIN_LINE_IDS;
+  var adminList = adminConfig.split(",").map(function(s) { return s.trim(); });
+  return adminList.indexOf(userId) !== -1;
 }
 
 /**
  * 📱 2. ระบบ Dynamic Config (Remote Settings)
  * ฟังก์ชันดึงค่าตั้งค่าที่รองรับการแก้ไขผ่าน ChatOps พร้อมระบบ Cache [9, 10]
  */
-function getDynamicConfig(key) {
+function getDynamicConfig(key, defaultValue) {
+  if (!key) return defaultValue !== undefined ? defaultValue : "";
   try {
     const cache = CacheService.getScriptCache();
     const cachedValue = cache.get("CONFIG_" + key);
@@ -63,8 +65,9 @@ function getDynamicConfig(key) {
     Logger.log("⚠️ getDynamicConfig Warning: " + e.message);
   }
 
-  // 3. หากไม่มีทั้งคู่ ให้ใช้ค่าเริ่มต้นจาก GLOBAL_CONFIG
-  return GLOBAL_CONFIG[key] || "";
+  // 3. Fallback: GLOBAL_CONFIG → defaultValue → ""
+  if (GLOBAL_CONFIG[key] !== undefined && GLOBAL_CONFIG[key] !== "") return GLOBAL_CONFIG[key];
+  return defaultValue !== undefined ? defaultValue : "";
 }
 
 /**

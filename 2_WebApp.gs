@@ -1,18 +1,5 @@
-var CORE_DB = {
-  START_ROW: 3,
-  COL_NAME_CHECK: 4,
-  COL_SITE: 6,
-  COL_WORK: 7,
-  COL_NORMAL_HR: 8,
-  COL_OT_M_IN: 11,
-  COL_OT_M_OUT: 12,
-  COL_OT_N_IN: 13,
-  COL_OT_N_OUT: 14,
-  COL_OT_E_IN: 15,
-  COL_OT_E_OUT: 16,
-  COL_OT_TOTAL: 17,
-  COL_ACCOM: 20
-};
+// ⚠️ [CONSOLIDATED] CORE_DB ถูกรวมไปไว้ที่ 4_CoreDatabase.gs เป็นแหล่งเดียว (Single Source of Truth)
+// ป้องกัน var ประกาศซ้ำที่ทำให้ค่าคอลัมน์ผิดเพี้ยนได้
 
 // =================================================================
 // 2_WebApp.gs (ระบบ Web Dashboard และ Spreadsheet UI)
@@ -69,12 +56,13 @@ function getEmployeeData() {
   }
 }
 // =====================================================================
-// ฟังก์ชันที่ 2: บันทึกรายงานประจำวันลงชีตรายวัน
+// ฟังก์ชันที่ 2: บันทึกรายงานประจำวันลงชีตรายวัน (ไฟล์ประจำเดือน)
+// ⚠️ แก้ไขแล้ว: ใช้ openById + MONTHLY_FILE_IDS แทน getActiveSpreadsheet()
+//    เพราะ Web App ไม่มี "active spreadsheet" ทำให้ไม่เคยบันทึกลงชีตจริงได้
 // =====================================================================
 function saveDailyReport(payload) {
   var lock = LockService.getScriptLock();
   try {
-    // 🛡️ ป้องกัน Race Condition ด้วยการล็อกระบบ 30 วินาที (ปลอดภัยกว่า 10 วินาที)
     lock.waitLock(30000);
 
     var dateStr = payload.date; // ฟอร์แมต yyyy-mm-dd
@@ -82,68 +70,96 @@ function saveDailyReport(payload) {
     var normalHour = Number(payload.normalHour) || 0;
     var otTotal = Number(payload.otTotal) || 0;
     var employees = payload.employees;
-    var isAdmin = payload.isAdmin === true; // สิทธิ์การบันทึกพิเศษ (ต้องแนบมาจากหน้าบ้าน)
+    var isAdmin = payload.isAdmin === true;
 
     if (!employees || employees.length === 0) {
       return { success: false, message: "ไม่พบรายชื่อพนักงานที่เลือก" };
     }
 
-    // 🚨 Server-Side Validation: ตรวจสอบและบล็อกการลงข้อมูลย้อนหลังเกิน 2 วัน
+    // 🚨 Server-Side Validation: ตรวจสอบวันที่ย้อนหลัง
     var parts = dateStr.split('-');
-    var targetDate = new Date(parts[0], parts[1] - 1, parts[2]);
+    var targetDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     targetDate.setHours(0, 0, 0, 0);
 
     var todayDate = new Date();
     todayDate.setHours(0, 0, 0, 0);
 
     var diffDays = Math.ceil((todayDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
+    var backdateLimit = parseInt(getDynamicConfig("BACKDATE_LIMIT") || "2");
 
-    // หากบันทึกย้อนหลังเกิน 2 วัน และไม่ใช่แอดมิน ให้ปฏิเสธการบันทึก
-    if (diffDays > 2 && !isAdmin) {
+    if (diffDays > backdateLimit && !isAdmin) {
       return {
         success: false,
-        message: "ระบบแจ้งเตือน: ไม่อนุญาตให้บันทึกข้อมูลย้อนหลังเกิน 2 วัน (กรุณาให้ Admin เป็นผู้ดำเนินการ)"
+        message: "ระบบแจ้งเตือน: ไม่อนุญาตให้บันทึกข้อมูลย้อนหลังเกิน " + backdateLimit + " วัน (กรุณาให้ Admin เป็นผู้ดำเนินการ)"
       };
     }
 
-    // แปลงวันที่ yyyy-mm-dd ให้เป็นฟอร์แมตภาษาไทย "วัน เดือน พ.ศ."
+    // 🎯 ดึง File ID ของไฟล์เดือนที่ต้องการจาก MONTHLY_FILE_IDS
+    var monthIndex = targetDate.getMonth(); // 0-11
+    var targetFileId = "";
+    
+    if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[monthIndex]) {
+      targetFileId = MONTHLY_FILE_IDS[monthIndex];
+    } else if (typeof getTargetFileIdByDate === 'function') {
+      // Fallback: ใช้ฟังก์ชัน getTargetFileIdByDate จาก SharedFunctions
+      var ddmmyyyy = targetDate.getDate() + "/" + (targetDate.getMonth() + 1) + "/" + targetDate.getFullYear();
+      targetFileId = getTargetFileIdByDate(ddmmyyyy);
+    }
+    
+    if (!targetFileId) {
+      return { success: false, message: "ไม่พบไฟล์ Google Sheets สำหรับเดือนนี้ (เดือนที่ " + (monthIndex + 1) + ")" };
+    }
+
+    // 📂 เปิดไฟล์ด้วย openById (ทำงานได้ทั้งใน Web App และ Spreadsheet context)
+    var ss = SpreadsheetApp.openById(targetFileId);
+
+    // แปลงวันที่เป็นชื่อแท็บภาษาไทย "วัน เดือน พ.ศ."
     var thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
     var thaiFullDate = targetDate.getDate() + " " + thaiMonths[targetDate.getMonth()] + " " + (targetDate.getFullYear() + 543);
 
-    // เปิดระบบจัดการในสเปรดชีตปัจจุบัน
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    // 🔍 ค้นหาแท็บชีตแบบ Tolerant (รองรับช่องว่างต่าง)
     var sheet = ss.getSheetByName(thaiFullDate);
-
-    // ตรวจสอบเชิงลึก: ถ้ายังไม่มีแผ่นงานของวันนั้นๆ ให้สร้างใหม่พร้อมหัวตาราง
     if (!sheet) {
-      sheet = ss.insertSheet(thaiFullDate);
-      sheet.appendRow(["วันที่บันทึก", "ไซต์งาน", "รหัส/ชื่อพนักงาน", "ชั่วโมงปกติ", "ชั่วโมง OT"]);
-      // ตกแต่งหัวตารางพื้นฐาน
-      sheet.getRange("A1:E1").setBackground("#f1f5f9").setFontWeight("bold").setHorizontalAlignment("center");
+      var allSheets = ss.getSheets();
+      var cleanTarget = thaiFullDate.replace(/\s+/g, "");
+      for (var s = 0; s < allSheets.length; s++) {
+        if (allSheets[s].getName().replace(/\s+/g, "") === cleanTarget) {
+          sheet = allSheets[s];
+          break;
+        }
+      }
     }
 
-    // Loop บันทึกข้อมูลพนักงานทุกคนที่เลือกแยกเป็นรายแถว
+    if (!sheet) {
+      return { success: false, message: "ไม่พบแท็บชีตวันที่: " + thaiFullDate + " ในไฟล์เดือนที่ " + (monthIndex + 1) + " (กรุณาสร้างแท็บวันที่ในไฟล์ก่อน)" };
+    }
+
+    // ✅ บันทึกข้อมูลพนักงานลงแถวใหม่ในชีต
     for (var i = 0; i < employees.length; i++) {
       sheet.appendRow([dateStr, site, employees[i], normalHour, otTotal]);
+    }
+
+    // 📝 บันทึก Audit Trail
+    if (typeof logAuditTrail === "function") {
+      logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + employees.length + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
     }
 
     return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + employees.length + " คน)" };
 
   } catch (err) {
+    // บันทึก Error ลง Audit
+    if (typeof logAuditTrail === "function") {
+      logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", JSON.stringify(payload).substring(0, 500), "", 0, "ERROR", err.toString());
+    }
     return { success: false, message: "Backend Error: " + err.toString() };
   } finally {
-    // เช็คก่อนปลดล็อกเสมอ เพื่อป้องกัน Error กรณี Lock หมดอายุไปแล้ว
     if (lock.hasLock()) {
       lock.releaseLock();
     }
   }
 }
-function doGet(e) {
-  // โหลดหน้า index.html และตั้งค่า Viewport สำหรับมือถือ
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('Smart Worksite System')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-}
+// ⚠️ [CONSOLIDATED] doGet() ถูกรวมไปไว้ที่ WebApp_GeminiTools.gs (เวอร์ชันเต็มพร้อม config injection)
+// ป้องกัน GAS "last wins" override ที่ทำให้ Web App ไม่ได้รับ appConfig
 function fetchGoogleChatSpaces() {
   try {
     // ต้องเปิด Advanced Google Services: Google Chat API ในโปรเจกต์ด้วย

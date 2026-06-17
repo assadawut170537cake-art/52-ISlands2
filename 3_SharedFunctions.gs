@@ -337,69 +337,15 @@ function getTargetFileIdByDate(dateStr) {
     return MONTHLY_FILE_IDS[mIndex];
   }
   
-  // คลังสำรองกรณีดึงค่าอาเรย์หลักพลาด
-  const backupIds = [
-    "1gmS6ZYD4xeO2PP7gu15yvApLaKuFa5tPrmDe-PtMOBk", "1Uly9KQFnQ5pQyDn9pHGbgelCmXgDLO4DRM846Vsr7EM", 
-    "1wwwbwFyDyoyZOQ_kkfvyrshfpGgi6wCRaPAHU3yXKbE", "1L4cB7dWgkgejhMV84-RuW7LdDNT9vZwm5I06xa9vQEE", 
-    "1mc7eMzYDZqsUwKr8FZCEKClQZfqIybf6aZ-2mgkWGHI", "1kX-D_ehfo01rdj3WLLAvDxPO1IEy-XG5GLWe9i1CSo4", 
-    "13GbWmUNrkLcJmo9gAnVSNnD_tH-PFaULH4I2C1DJEFE", "1mHSW_osT7LaXZPyU3KjU4i9801eJSibYyu3iHagK2I8", 
-    "1NoNXMDNvMdw5NIfS3QXIi57fCbpqu-iS-6bZQ8dyUBY", "14SDdBPxt-_muIvtHAx06b2Feh97Q-JkpaDvqlyei1ak", 
-    "1_DxUo7S7m1FwlPIyjHdetGONwdNwO9Ud54Xtmk4di1c", "1O5_8zTLQWZKuv647H65K-SHVyY3H2fDmwoWtZNUB7ZU"
-  ];
-  return backupIds[mIndex] || getDynamicConfig("EXTERNAL_DATABASE_ID");
+  // Fallback: ใช้ฐานข้อมูลกลางแทน (ลบ backupIds ออก — ให้ MONTHLY_FILE_IDS ใน Config.gs เป็นแหล่งเดียว)
+  return getDynamicConfig("EXTERNAL_DATABASE_ID");
 }
 
-/**
- * ดึงคำสั่งตั้งต้นของ AI (System Instruction)
- * @param {string} type ประเภทของ Prompt
- */
-function getDynamicPrompt(type) {
-  const prompts = {
-    'BOT': `คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System
-    หน้าที่และวิธีการตอบกลับ:
-    1. แนะนำการใช้งาน (Guide): หากผู้ใช้ถามวิธีใช้แอป ให้ตอบอธิบายสั้น กระชับ สุภาพ สไตล์พี่สอนน้อง เป็นข้อๆ
-    2. บันทึกงาน (Natural Language Input): หากผู้ใช้สั่งงานด้วยภาษาทั่วไป ให้แปลงเป็นโครงสร้าง JSON นี้เท่านั้น:
-     {"type":"SAVE", "payload": {"date":"YYYY-MM-DD", "default_site":"ชื่อไซต์", "time_start":"08.00", "time_end":"17.00", "employees":[{"firstname":"ชื่อพนักงาน","task":"ลักษณะงาน"}]}}
-     *กฎล็อกย้อนหลัง:* ตรรกะปัจจุบันยอมให้บันทึกย้อนหลังได้ตามที่กำหนด
-    3. อัปเดตตรรกะระบบ: หากแอดมินสั่งปรับเปลี่ยนกฎเกณฑ์ ให้ตอบกลับเป็น JSON นี้เท่านั้น:
-     {"type":"UPDATE_LOGIC", "new_logic": {"backdate_limit": 3}} 
-     *กฎเหล็ก:* จำกัดสิทธิ์เฉพาะ Admin เท่านั้น
+// ⚠️ [CONSOLIDATED] getDynamicPrompt() ถูกรวมไปไว้ที่ 7_AI_Assistant.gs (เวอร์ชันเต็มที่อ่านจาก Script Properties ก่อน)
+// ป้องกัน GAS "last wins" override ที่ทำให้ AI prompt ไม่สามารถอัปเดตผ่าน setDynamicPrompt() ได้
 
-    สรุปใจความสำคัญไว้บรรทัดแรกเสมอ ใช้ภาษาสุภาพ เป็นกันเอง`
-  };
-
-  return prompts[type] || prompts['BOT'];
-}
-
-/**
- * ฟังก์ชันตรวจสอบสิทธิ์ความเป็น Admin
- * @param {string} userId - Line User ID ของผู้ส่งข้อความ
- * @return {boolean} - คืนค่า true หากเป็น Admin
- */
-function checkIsAdmin(userId) {
-  // ดึงรายชื่อ Admin จาก Config หรือ Sheet ชื่อ "AdminList"
-  // แนะนำให้เก็บ Admin ไว้ใน Sheet เพื่อให้จัดการง่ายผ่านคำสั่ง "เพิ่ม/ลดแอดมิน"
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("AdminList");
-  if (!sheet) return false; // หากไม่มี Sheet Admin ให้กันไว้ก่อน
-  
-  const data = sheet.getDataRange().getValues();
-  // สมมติว่า Column 1 (index 0) คือ User ID ของแอดมิน
-  const adminIds = data.map(row => String(row[0])); 
-  
-  return adminIds.includes(String(userId));
-}
-
-/**
- * ตัวอย่างการนำไปใช้งานในฟังก์ชัน processSystemCommands
- */
-function executeAdminCommand(cmd, userId) {
-  if (!checkIsAdmin(userId)) {
-    return "❌ ขออภัย คุณไม่มีสิทธิ์ใช้งานคำสั่ง Admin";
-  }
-  
-  // เรียกใช้คำสั่ง Admin ตามปกติที่นี่...
-  return "ประมวลผลคำสั่งเรียบร้อยแล้ว";
-}
+// ⚠️ [CONSOLIDATED] checkIsAdmin() + executeAdminCommand() ถูกลบออก
+// ใช้ isAdmin(userId) จาก Config.gs เป็นแหล่งเดียวแทน (Single Source of Truth)
 
 function parseThaiDate(s) {
   if (!s) return "";
@@ -437,50 +383,8 @@ function parseThaiDate(s) {
   return `${day} ${m} ${y}`;
 }
 
-/**
- * ⚙️ ดึงค่า Configuration แบบ Dynamic พร้อมระบบ Caching ระดับสูง
- * @param {string} key - ชื่อ Key ที่ต้องการดึงค่า
- * @param {any} defaultValue - ค่าเริ่มต้นที่จะให้คืนกลับไปกรณีไม่พบข้อมูล
- * @returns {any} ค่าที่ได้จาก Cache, Properties หรือ defaultValue
- */
-function getDynamicConfig(key, defaultValue = null) {
-  if (!key) return defaultValue;
-
-  const cache = CacheService.getScriptCache();
-  
-  try {
-    // 1. ตรวจสอบจาก Cache ก่อน (เร็วที่สุด)
-    const cachedValue = cache.get(key);
-    if (cachedValue !== null) {
-      return cachedValue;
-    }
-
-    // 2. Fallback ไปดึงจาก Script Properties
-    const props = PropertiesService.getScriptProperties();
-    const propValue = props.getProperty(key);
-    
-    if (propValue !== null) {
-      // นำค่าที่ดึงได้กลับไปเก็บใน Cache เป็นเวลา 6 ชั่วโมง (21600 วินาที)
-      cache.put(key, propValue, 21600);
-      return propValue;
-    }
-    
-    // 3. Fallback ไปดึงจากฐานข้อมูล 'Main Menu' (สามารถเปิดใช้ได้ถ้ามี Sheet Config)
-    /*
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Config');
-    if (sheet) {
-      // ลอจิกการดึงจาก Sheet...
-    }
-    */
-
-  } catch (e) {
-    console.warn(`[getDynamicConfig] Warning: ไม่สามารถดึงค่า ${key} ได้ - ${e.message}`);
-  }
-
-  // คืนค่า Default ที่ปลอดภัยเสมอหากไม่พบ Key
-  return defaultValue;
-}
+// ⚠️ [CONSOLIDATED] getDynamicConfig() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)
+// เวอร์ชันใน Config.gs รองรับ defaultValue + GLOBAL_CONFIG fallback + Cache prefix ป้องกันชนกัน
 
 /**
  * 🛡️ ระบบบันทึก Audit Trail สำหรับการตรวจสอบ Monitor และ CI/CD Pipeline

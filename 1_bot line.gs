@@ -593,7 +593,5 @@ function handleTestMode(content, replyToken) {
   reply(replyToken, content === "ทดสอบระบบ" ? "🧪 เปิดโหมดทดสอบแล้ว" : "🧹 ปิดโหมดทดสอบแล้ว");
 }
 
-function isAdmin(userId) {
-  // บังคับอ่านจาก GLOBAL_CONFIG เท่านั้น ไม่ผ่าน getDynamicConfig ที่อาจมี Cache เก่า
-  return GLOBAL_CONFIG.ADMIN_LINE_IDS.includes(userId);
-}
+// ⚠️ [CONSOLIDATED] isAdmin() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)
+// ป้องกัน GAS "last wins" override ที่ทำให้ลอจิกตรวจสอบ Admin ทำงานผิดพลาด

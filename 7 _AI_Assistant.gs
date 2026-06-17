@@ -382,11 +382,8 @@ function callGemini(prompt, systemInstruction, isJson) {
   }
 }
 
-/** ฟังก์ชันตรวจสอบสิทธิ์ Admin ส่วนกลาง */
-function checkIsAdmin(userId) {
-  const adminIds = (getDynamicConfig("ADMIN_LINE_ID") || "").split(",").map(s => s.trim());
-  return adminIds.includes(userId);
-}
+// ⚠️ [CONSOLIDATED] checkIsAdmin() ถูกลบออก — ใช้ isAdmin() จาก Config.gs แทนเป็นแหล่งเดียว
+// ป้องกันลอจิกตรวจสอบ Admin ทำงานไม่สอดคล้องกัน (ตัวนี้ใช้ ADMIN_LINE_ID แต่ตัวหลักใช้ ADMIN_LINE_IDS)
 
 // =================================================================
 // 📱 SOURCE HANDLERS (อัปเดตระบบ Hook)
