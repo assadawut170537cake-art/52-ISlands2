@@ -158,8 +158,12 @@ function saveDailyReport(payload) {
     }
   }
 }
-// ⚠️ [CONSOLIDATED] doGet() ถูกรวมไปไว้ที่ WebApp_GeminiTools.gs (เวอร์ชันเต็มพร้อม config injection)
-// ป้องกัน GAS "last wins" override ที่ทำให้ Web App ไม่ได้รับ appConfig
+function doGet(e) {
+  // โหลดหน้า index.html และตั้งค่า Viewport สำหรับมือถือ
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('Smart Worksite System')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
 function fetchGoogleChatSpaces() {
   try {
     // ต้องเปิด Advanced Google Services: Google Chat API ในโปรเจกต์ด้วย
