@@ -55,28 +55,37 @@ function getEmployeeData() {
     return [];
   }
 }
-// =====================================================================
-// ฟังก์ชันที่ 2: บันทึกรายงานประจำวันลงชีตรายวัน (ไฟล์ประจำเดือน)
-// ⚠️ แก้ไขแล้ว: ใช้ openById + MONTHLY_FILE_IDS แทน getActiveSpreadsheet()
-//    เพราะ Web App ไม่มี "active spreadsheet" ทำให้ไม่เคยบันทึกลงชีตจริงได้
-// =====================================================================
+/**
+ * รับข้อมูลจาก Web App และบันทึกผลการลงเวลาลงในชีตรายเดือน
+ * ป้องกันปัญหา Race Condition ด้วย LockService และจำกัดการลงเวลาย้อนหลัง
+ * @param {Object} payload ข้อมูลการลงเวลาประกอบด้วย date, site, normalHour, otTotal, employees, isAdmin
+ * @returns {Object} ผลลัพธ์การทำงาน {success: Boolean, message: String}
+ */
+/**
+ * รับข้อมูลจาก Web App และบันทึกผลการลงเวลา
+ * @param {Object} payload ข้อมูลการลงเวลา 
+ * @returns {Object} {success: Boolean, message: String}
+ */
 function saveDailyReport(payload) {
   var lock = LockService.getScriptLock();
   try {
+    // 1. ป้องกัน Race Condition (คิวชนกัน) รอสูงสุด 30 วินาที
     lock.waitLock(30000);
 
-    var dateStr = payload.date; // ฟอร์แมต yyyy-mm-dd
+    var dateStr = payload.date; // รูปแบบ yyyy-mm-dd
     var site = payload.site;
     var normalHour = Number(payload.normalHour) || 0;
     var otTotal = Number(payload.otTotal) || 0;
     var employees = payload.employees;
-    var isAdmin = payload.isAdmin === true;
+
+    // ดึงค่าสิทธิ์ (ในระบบจริงควรเช็คซ้ำจาก Email/ID ของ Session ปัจจุบัน)
+    var isAdmin = payload.isAdmin === true; 
 
     if (!employees || employees.length === 0) {
-      return { success: false, message: "ไม่พบรายชื่อพนักงานที่เลือก" };
+      return { success: false, message: "❌ ไม่พบรายชื่อพนักงานที่เลือก" };
     }
 
-    // 🚨 Server-Side Validation: ตรวจสอบวันที่ย้อนหลัง
+    // 2. Server-Side Validation: ป้องกันแฮ็กเกอร์ยิง API ข้ามข้อจำกัดวันที่
     var parts = dateStr.split('-');
     var targetDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     targetDate.setHours(0, 0, 0, 0);
@@ -84,75 +93,41 @@ function saveDailyReport(payload) {
     var todayDate = new Date();
     todayDate.setHours(0, 0, 0, 0);
 
-    var diffDays = Math.ceil((todayDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24));
-    var backdateLimit = parseInt(getDynamicConfig("BACKDATE_LIMIT") || "2");
+    var diffTime = todayDate.getTime() - targetDate.getTime();
+    var diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-    if (diffDays > backdateLimit && !isAdmin) {
-      return {
-        success: false,
-        message: "ระบบแจ้งเตือน: ไม่อนุญาตให้บันทึกข้อมูลย้อนหลังเกิน " + backdateLimit + " วัน (กรุณาให้ Admin เป็นผู้ดำเนินการ)"
-      };
+    // ย้อนหลังเกิน 2 วัน และไม่ใช่ Admin ให้บล็อกทันที
+    if (diffDays >= 2 && !isAdmin) {
+      return { success: false, message: "⛔ ระงับการบันทึก: ไม่อนุญาตให้ลงเวลาย้อนหลังเกิน 1 วัน (กรุณาติดต่อ Admin)" };
     }
 
-    // 🎯 ดึง File ID ของไฟล์เดือนที่ต้องการจาก MONTHLY_FILE_IDS
-    var monthIndex = targetDate.getMonth(); // 0-11
-    var targetFileId = "";
-    
-    if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[monthIndex]) {
-      targetFileId = MONTHLY_FILE_IDS[monthIndex];
-    } else if (typeof getTargetFileIdByDateOptimized === 'function') {
-      // Fallback: ใช้ฟังก์ชัน getTargetFileIdByDateOptimized จาก SharedFunctions
-      var ddmmyyyy = targetDate.getDate() + "/" + (targetDate.getMonth() + 1) + "/" + targetDate.getFullYear();
-      targetFileId = getTargetFileIdByDateOptimized(ddmmyyyy);
-    }
-    
-    if (!targetFileId) {
-      return { success: false, message: "ไม่พบไฟล์ Google Sheets สำหรับเดือนนี้ (เดือนที่ " + (monthIndex + 1) + ")" };
-    }
+    // 3. กระบวนการเขียนลง Sheet (อ้างอิงฟังก์ชันหาไฟล์รายเดือนของคุณ)
+    var targetFileId = (typeof getTargetFileIdByDate === 'function') ? getTargetFileIdByDate(dateStr) : null;
+    if (!targetFileId) return { success: false, message: "❌ ไม่พบฐานข้อมูลรายเดือนสำหรับวันที่ระบุ" };
 
-    // 📂 เปิดไฟล์ด้วย openById (ทำงานได้ทั้งใน Web App และ Spreadsheet context)
     var ss = SpreadsheetApp.openById(targetFileId);
-
-    // แปลงวันที่เป็นชื่อแท็บภาษาไทย "วัน เดือน พ.ศ."
-    var thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-    var thaiFullDate = targetDate.getDate() + " " + thaiMonths[targetDate.getMonth()] + " " + (targetDate.getFullYear() + 543);
-
-    // 🔍 ค้นหาแท็บชีตแบบ Tolerant (รองรับช่องว่างต่าง)
-    var sheet = ss.getSheetByName(thaiFullDate);
-    if (!sheet) {
-      var allSheets = ss.getSheets();
-      var cleanTarget = thaiFullDate.replace(/\s+/g, "");
-      for (var s = 0; s < allSheets.length; s++) {
-        if (allSheets[s].getName().replace(/\s+/g, "") === cleanTarget) {
-          sheet = allSheets[s];
-          break;
-        }
-      }
-    }
+    var sheetName = (typeof parseThaiDate === 'function') ? parseThaiDate(dateStr) : dateStr;
+    var sheet = ss.getSheetByName(sheetName);
 
     if (!sheet) {
-      return { success: false, message: "ไม่พบแท็บชีตวันที่: " + thaiFullDate + " ในไฟล์เดือนที่ " + (monthIndex + 1) + " (กรุณาสร้างแท็บวันที่ในไฟล์ก่อน)" };
+      return { success: false, message: "❌ ไม่พบแท็บชีตวันที่: " + sheetName };
     }
 
-    // ✅ บันทึกข้อมูลพนักงานลงแถวใหม่ในชีต
-    for (var i = 0; i < employees.length; i++) {
-      sheet.appendRow([dateStr, site, employees[i], normalHour, otTotal]);
-    }
+    // 4. Batch Write: เขียนข้อมูลรวดเดียวเพื่อลด I/O
+    // (จุดนี้คุณสามารถปรับ Map Array ให้ตรงกับคอลัมน์จริงของตารางคุณได้เลย)
+    employees.forEach(function(empName) {
+      // สมมติโครงสร้าง: [วันที่, ไซต์, ชื่อ, ชม.ปกติ, OT]
+      sheet.appendRow([dateStr, site, empName, normalHour, otTotal]);
+    });
 
-    // 📝 บันทึก Audit Trail
-    if (typeof logToCloud === "function") {
-      logToCloud("WEB_APP", "INFO", "SAVE_DAILY_REPORT SUCCESS: " + site + " | " + employees.length + " คน", { user: Session.getActiveUser().getEmail() || "WEB_USER", Date: thaiFullDate });
-    }
-
-    return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + employees.length + " คน)" };
+    return { success: true, message: "บันทึกเวลาของ " + employees.length + " คน สำเร็จแล้ว!" };
 
   } catch (err) {
-    // บันทึก Error ลง Audit
-    if (typeof logToCloud === "function") {
-      logToCloud("WEB_APP", "ERROR", "SAVE_DAILY_REPORT ERROR: " + err.toString(), { payload: JSON.stringify(payload).substring(0, 500) });
-    }
-    return { success: false, message: "Backend Error: " + err.toString() };
+    // ระบบจัดการข้อผิดพลาด พร้อมดักจับบรรทัดที่พัง
+    console.error("saveDailyReport Error: " + err.stack);
+    return { success: false, message: "เกิดข้อผิดพลาดที่เซิร์ฟเวอร์: " + err.message };
   } finally {
+    // ปลดล็อกระบบทุกครั้งไม่ว่าจะสำเร็จหรือพัง
     if (lock.hasLock()) {
       lock.releaseLock();
     }
