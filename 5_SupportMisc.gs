@@ -3,9 +3,13 @@
 // =================================================================
 
 function logErrorToSheet(fileId, originalMsg, errorMsg) {
-  if (!fileId) return;
+  let targetId = fileId;
+  if (!targetId) {
+    targetId = (typeof getDynamicConfig === 'function') ? getDynamicConfig("EXTERNAL_DATABASE_ID") : null;
+  }
+  if (!targetId) return;
   try {
-    const ss = SpreadsheetApp.openById(fileId);
+    const ss = SpreadsheetApp.openById(targetId);
     let logSheet = ss.getSheetByName("Error_Log") || ss.insertSheet("Error_Log");
     if (logSheet.getLastRow() === 0) {
       logSheet.appendRow(["วัน-เวลาที่แจ้ง", "ข้อความจากไลน์ (ต้นฉบับ)", "สาเหตุที่แจ้งเตือน", "สถานะการตรวจสอบ"]);
@@ -135,24 +139,7 @@ function getValidNamesForAI() {
   } catch (e) { return "ไม่สามารถดึงรายชื่อได้"; }
 }
 
-function callGeminiText(userText) {
-  try {
-    const model = getSecret("MODEL_NAME") || "gemini-2.5-flash";
-    const apiKey = getSecret("GEMINI_API_KEY_WEB") || getSecret("GEMINI_API_KEY_LINE");
-    if (!apiKey) return { success: false, text: "Error: API Key not found in system" };
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const res = UrlFetchApp.fetch(url, {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify({ contents: [{ parts: [{ text: userText }] }] }),
-      muteHttpExceptions: true
-    });
-    const json = JSON.parse(res.getContentText());
-    if (json.candidates && json.candidates.length > 0) return { success: true, text: json.candidates[0].content.parts[0].text };
-    return { success: false, text: "Error: no candidate" };
-  } catch (e) { return { success: false, text: "Error: " + e.message }; }
-}
 
 function asyncLog(data) { console.log(data); }
 
