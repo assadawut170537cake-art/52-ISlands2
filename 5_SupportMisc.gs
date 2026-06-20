@@ -2,6 +2,23 @@
 // 5_SupportMisc.gs (ฟังก์ชันสนับสนุน แจ้งเตือนแอดมิน และจัดการ Error)
 // =================================================================
 
+function logErrorToSheet(fileId, originalMsg, errorMsg) {
+  if (!fileId) return;
+  try {
+    const ss = SpreadsheetApp.openById(fileId);
+    let logSheet = ss.getSheetByName("Error_Log") || ss.insertSheet("Error_Log");
+    if (logSheet.getLastRow() === 0) {
+      logSheet.appendRow(["วัน-เวลาที่แจ้ง", "ข้อความจากไลน์ (ต้นฉบับ)", "สาเหตุที่แจ้งเตือน", "สถานะการตรวจสอบ"]);
+      logSheet.getRange("A1:D1").setFontWeight("bold").setBackground("#FFD966").setHorizontalAlignment("center");
+      logSheet.setFrozenRows(1);
+    }
+    const timestamp = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
+    logSheet.appendRow([timestamp, originalMsg, errorMsg, "รอตรวจสอบ ❌"]);
+    const lastRow = logSheet.getLastRow();
+    if (lastRow > 1000) logSheet.deleteRows(2, lastRow - 1000);
+  } catch (e) { console.error("Log Error Failed: " + e.message); }
+}
+
 function getSecret(key) {
   return PropertiesService.getScriptProperties().getProperty(key) || "";
 }
