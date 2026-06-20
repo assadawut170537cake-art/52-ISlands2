@@ -106,9 +106,7 @@ function handleWebAppGateway(payload) {
         const targetId = getTargetFileIdByDate(data.date);
         if (!targetId) throw new Error("ไม่พบไฟล์สำหรับเดือนนี้");
         // WebApp requests default to system admin or user email if tracked
-        const writeRes = typeof writeToDailySheetBatch === 'function'
-            ? writeToDailySheetBatch(data, "WEB_APP_USER", targetId)
-            : writeToDailySheet(data, "WEB_APP_USER", targetId);
+        const writeRes = writeToDailySheet(data, "WEB_APP_USER", targetId);
         
         return ContentService.createTextOutput(
           JSON.stringify({ status: "OK", message: `บันทึกสำเร็จ ${writeRes.count} คน` })
