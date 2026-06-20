@@ -18,7 +18,7 @@ var CORE_DB = {
   COL_ACCOM: 20      
 };
 
-function writeToDailySheetBatch(data, userId, fileId) {
+function writeToDailySheet(data, userId, fileId) {
   if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
   const ss = SpreadsheetApp.openById(fileId);
   const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
@@ -49,6 +49,8 @@ function writeToDailySheetBatch(data, userId, fileId) {
   
   let successCount = 0; 
   let errors = [];
+  let processedNames = [];
+  let replyAccom = "ไม่ได้ระบุ";
 
   data.employees.forEach(emp => {
     const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
@@ -71,6 +73,7 @@ function writeToDailySheetBatch(data, userId, fileId) {
       if (empAccom && empAccom !== "-" && empAccom !== "เดิม") {
         block[rowIndex][CORE_DB.COL_ACCOM - 1] = empAccom;
       }
+      if (successCount === 0) replyAccom = empAccom || "ไม่ได้ระบุ";
       
       const otHrs = calculateAndTimeEntryFromValues(block, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
       
@@ -82,13 +85,17 @@ function writeToDailySheetBatch(data, userId, fileId) {
          block[rowIndex][9] = ""; 
       }
       successCount++;
+      processedNames.push(inputName);
     } else {
       errors.push(emp.firstname);
     }
   });
 
   blockRange.setValues(block);
-  return { count: successCount, errors: errors };
+  if (userId && successCount > 0) {
+    PropertiesService.getScriptProperties().setProperty(`LAST_ENTRY_${userId}`, JSON.stringify({ date: data.date, names: processedNames }));
+  }
+  return { count: successCount, errors: errors, accom: replyAccom };
 }
 
 /**
