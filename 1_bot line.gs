@@ -286,15 +286,6 @@ function doPost(e) {
 }
 
 function handleClockIn(msg, userId, token) {
-  // 1. ล็อกระบบป้องกันข้อมูลชนกัน (Concurrency Control)
-  const lock = LockService.getScriptLock();
-  try {
-    // รอคิวสูงสุด 30 วินาที
-    lock.waitLock(30000);
-  } catch (e) {
-    reply(token, "⚠️ ระบบกำลังประมวลผลคิวอื่นอยู่ กรุณารอสักครู่แล้วส่งใหม่ครับ");
-    return;
-  }
 
   // 🚨 ครอบ try...finally เพื่อบังคับปลด Lock เสมอ ป้องกัน "ระบบค้างถาวร"
   try {
@@ -397,9 +388,6 @@ function handleClockIn(msg, userId, token) {
   } catch (err) {
     logErrorToSheet(null, msg, "Critical Error HandleClockIn: " + err.message);
     reply(token, "🔴 ระบบขัดข้อง กรุณาแจ้ง Admin ครับ");
-  } finally {
-    // 🛡️ ปลดล็อกเสมอ 100% (รับประกันว่าคิวต่อไปจะได้ทำงานแน่นอน ไม่มีการค้าง)
-    lock.releaseLock();
   }
 }
 
@@ -453,10 +441,8 @@ async function finalizeClockInSaving(data, userId, token, check, customOt, targe
   if (!targetId) targetId = getTargetFileIdByDate(data.date);
   if (!targetId) { reply(token, "❌ ไม่พบไฟล์สำหรับเดือนนี้"); return; }
 
-  // 🚀 เรียกใช้ writeToDailySheetBatch (เซฟแบบกลุ่มที่เสถียรที่สุด)
-  const writeRes = typeof writeToDailySheetBatch === 'function'
-    ? writeToDailySheetBatch(data, userId, targetId)
-    : writeToDailySheet(data, userId, targetId); 
+  // 🚀 เรียกใช้ writeToDailySheet (เซฟแบบกลุ่มที่เสถียรที่สุด)
+  const writeRes = writeToDailySheet(data, userId, targetId); 
 
   let customOtSite = null; let customOtTask = null;
   if (customOt && writeRes.count > 0) {
