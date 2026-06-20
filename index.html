@@ -1452,65 +1452,201 @@
             );
         }
 
+        
         // ============================================================
         // COMPONENT: StatsTab
         // ============================================================
-        function StatsTab({ dailyReports, safetyHistory, stats }) {
-            const chart1Ref = useRef(null);
-            const chart2Ref = useRef(null);
+        function StatsTab({ employees, dailyReports, safetyHistory, stats, t }) {
+            const [searchTerm, setSearchQuery] = useState("");
+            const [statusFilter, setStatusFilter] = useState("ทั้งหมด");
+            const [toastMessage, setToastMessage] = useState(null);
+            
+            const chartInstanceRef = useRef(null);
+            const canvasRef = useRef(null);
+
+            const showToast = (message) => {
+                setToastMessage(message);
+                setTimeout(() => setToastMessage(null), 3000);
+            };
+
+            const mappedEmployees = useMemo(() => {
+                return employees.map(emp => {
+                    const latestReport = dailyReports.find(r => r.names && r.names.includes(emp.E));
+                    let status = emp.K === 'ปกติ' ? (latestReport ? 'เข้างาน' : 'ขาดงาน') : 'ลาออก';
+                    return {
+                        id: emp.N,
+                        name: emp.E,
+                        status: status,
+                        timeIn: latestReport ? (latestReport.timeIn || '08:00') : '-',
+                        ot: latestReport && latestReport.names && latestReport.names.includes(emp.E) ? (latestReport.otTotal || 0) : 0
+                    };
+                });
+            }, [employees, dailyReports]);
+
+            const dashboardStats = useMemo(() => {
+                const total = mappedEmployees.length;
+                const present = mappedEmployees.filter(e => e.status === "เข้างาน").length;
+                const absent = mappedEmployees.filter(e => e.status === "ขาดงาน").length;
+                const sick = mappedEmployees.filter(e => e.status === "ลาป่วย").length;
+                const totalOT = mappedEmployees.reduce((sum, e) => sum + Number(e.ot), 0);
+                return { total, present, absent, sick, totalOT };
+            }, [mappedEmployees]);
+
+            const filteredEmployees = useMemo(() => {
+                return mappedEmployees.filter(emp => {
+                    const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) || emp.id.includes(searchTerm);
+                    const matchesStatus = statusFilter === "ทั้งหมด" || emp.status === statusFilter;
+                    return matchesSearch && matchesStatus;
+                });
+            }, [mappedEmployees, searchTerm, statusFilter]);
 
             useEffect(() => {
-                const ctx1 = document.getElementById('chart-sites')?.getContext('2d');
-                if (ctx1) {
-                    if (chart1Ref.current) chart1Ref.current.destroy();
-                    const map = {};
-                    dailyReports.forEach(r => { if(r.site) map[r.site] = (map[r.site]||0) + Number(r.normalHour) + Number(r.otTotal); });
-                    chart1Ref.current = new Chart(ctx1, {
+                let chartInstance = null;
+                const initChart = () => {
+                    if (!canvasRef.current) return;
+                    const ctx = canvasRef.current.getContext('2d');
+                    if (chartInstanceRef.current) chartInstanceRef.current.destroy();
+                    
+                    const chartData = mappedEmployees.filter(e => e.ot > 0).slice(0,10);
+                    
+                    chartInstance = new window.Chart(ctx, {
                         type: 'bar',
-                        data: { labels: Object.keys(map), datasets: [{ label: 'ชั่วโมงสะสม', data: Object.values(map), backgroundColor: 'rgba(99,102,241,0.75)', borderColor: 'rgb(79,70,229)', borderWidth: 1.5, borderRadius: 8 }] },
-                        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+                        data: {
+                            labels: chartData.map(e => e.name),
+                            datasets: [{
+                                label: 'จำนวนชั่วโมงทำงานล่วงเวลา (ชั่วโมง)',
+                                data: chartData.map(e => e.ot),
+                                backgroundColor: 'rgba(16, 185, 129, 0.75)',
+                                borderColor: 'rgb(16, 185, 129)',
+                                borderWidth: 1.5,
+                                borderRadius: 6
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { stepSize: 1 } },
+                                x: { grid: { display: false }, ticks: { font: { family: "'Sarabun', sans-serif" } } }
+                            },
+                            plugins: {
+                                legend: { display: true, position: 'top', labels: { font: { family: "'Sarabun', sans-serif", weight: 'bold' } } }
+                            }
+                        }
                     });
+                    chartInstanceRef.current = chartInstance;
+                };
+
+                if (window.Chart) {
+                    initChart();
+                } else {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+                    script.async = true;
+                    script.onload = initChart;
+                    document.head.appendChild(script);
                 }
-                const ctx2 = document.getElementById('chart-safety')?.getContext('2d');
-                if (ctx2) {
-                    if (chart2Ref.current) chart2Ref.current.destroy();
-                    const sorted = [...safetyHistory].reverse();
-                    chart2Ref.current = new Chart(ctx2, {
-                        type: 'line',
-                        data: { labels: sorted.map(h=>h.date), datasets: [{ label: 'PPE %', data: sorted.map(h=>parseFloat(h.complianceScore)), borderColor:'rgb(16,185,129)', backgroundColor:'rgba(16,185,129,0.1)', tension:0.3, fill:true, borderWidth:3 }] },
-                        options: { responsive:true, maintainAspectRatio:false, scales:{y:{min:0,max:100}} }
-                    });
-                }
+
                 return () => {
-                    if (chart1Ref.current) chart1Ref.current.destroy();
-                    if (chart2Ref.current) chart2Ref.current.destroy();
-                }
-            }, [dailyReports, safetyHistory]);
+                    if (chartInstanceRef.current) {
+                        chartInstanceRef.current.destroy();
+                        chartInstanceRef.current = null;
+                    }
+                };
+            }, [mappedEmployees]);
 
             return (
-                <div className="space-y-4 pb-6 w-full">
-                    <h2 className="text-lg sm:text-xl font-extrabold text-slate-800">📊 สถิติและรายงาน</h2>
-                    <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                        {[
-                            {label:'OT สะสม',value:`${stats.otTotal} ชม.`,icon:'⏰',bg:'bg-orange-50',text:'text-orange-600'},
-                            {label:'ชม.ปกติสะสม',value:`${stats.normalTotal} ชม.`,icon:'🕐',bg:'bg-blue-50',text:'text-blue-600'},
-                            {label:'PPE เฉลี่ย',value:`${stats.safetyAvg}%`,icon:'🛡️',bg:'bg-emerald-50',text:'text-emerald-600'},
-                            {label:'รายงานทั้งหมด',value:dailyReports.length,icon:'📋',bg:'bg-violet-50',text:'text-violet-600'},
-                        ].map((s,i) => (
-                            <div key={i} className={`${s.bg} rounded-2xl p-2.5 sm:p-3 text-center`}>
-                                <div className="text-xl sm:text-2xl mb-1">{s.icon}</div>
-                                <div className={`text-base sm:text-xl font-extrabold ${s.text}`}>{s.value}</div>
-                                <div className="text-[10px] sm:text-xs text-slate-500 mt-0.5">{s.label}</div>
+                <div className="bg-slate-50 min-h-full text-slate-800 font-sans p-2 sm:p-4 rounded-2xl w-full">
+                    <div className="max-w-6xl mx-auto">
+                        <header className="mb-4 border-b border-slate-200 pb-3">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                                <div>
+                                    <h1 className="text-xl sm:text-2xl font-black text-slate-800">👷 สรุปสถิติกำลังพลประจำวัน</h1>
+                                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">แผงวิเคราะห์และติดตามตารางบันทึกเวลา</p>
+                                </div>
+                                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] sm:text-xs font-bold px-3 py-1.5 rounded-full shadow-sm">
+                                    อัปเดตล่าสุด: {new Date().toLocaleDateString('th-TH')}
+                                </div>
                             </div>
-                        ))}
-                    </div>
-                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
-                        <div className="font-bold text-slate-700 text-xs sm:text-sm mb-3">ชั่วโมงทำงานตามไซต์งาน</div>
-                        <div style={{height:'200px'}}><canvas id="chart-sites"></canvas></div>
-                    </div>
-                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
-                        <div className="font-bold text-slate-700 text-xs sm:text-sm mb-3">แนวโน้ม PPE Compliance</div>
-                        <div style={{height:'160px'}}><canvas id="chart-safety"></canvas></div>
+                        </header>
+
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm text-center">
+                                <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase">พนักงานทั้งหมด</p>
+                                <p className="text-xl sm:text-2xl font-black text-slate-800 mt-1">{dashboardStats.total} คน</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm text-center">
+                                <p className="text-[9px] sm:text-[10px] font-bold text-emerald-500 uppercase">เข้างานจริง</p>
+                                <p className="text-xl sm:text-2xl font-black text-emerald-600 mt-1">{dashboardStats.present} คน</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm text-center">
+                                <p className="text-[9px] sm:text-[10px] font-bold text-rose-500 uppercase">ขาดงาน</p>
+                                <p className="text-xl sm:text-2xl font-black text-rose-600 mt-1">{dashboardStats.absent} คน</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm text-center">
+                                <p className="text-[9px] sm:text-[10px] font-bold text-amber-500 uppercase">ลาป่วย</p>
+                                <p className="text-xl sm:text-2xl font-black text-amber-600 mt-1">{dashboardStats.sick} คน</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm text-center col-span-2 lg:col-span-1">
+                                <p className="text-[9px] sm:text-[10px] font-bold text-indigo-500 uppercase">OT สะสมวันนี้</p>
+                                <p className="text-xl sm:text-2xl font-black text-indigo-600 mt-1">+{dashboardStats.totalOT} ชม.</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                            <section className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden w-full">
+                                <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                                    <h3 className="font-extrabold text-slate-700 text-sm">📋 รายชื่อผู้เช็คอินลงเวลา</h3>
+                                    <div className="flex flex-col sm:flex-row gap-2 mt-3 w-full">
+                                        <input type="text" placeholder="🔍 ค้นหา..." value={searchTerm} onChange={e => setSearchQuery(e.target.value)} className="bg-white border border-slate-300 rounded-lg py-1.5 px-3 text-xs font-semibold focus:border-indigo-500 outline-none flex-1" />
+                                        <div className="flex gap-1 bg-white p-1 rounded-lg border border-slate-300 overflow-x-auto">
+                                            {["ทั้งหมด", "เข้างาน", "ขาดงาน", "ลาป่วย"].map(status => (
+                                                <button key={status} onClick={() => setStatusFilter(status)} className={`text-[9px] font-bold px-2 py-1 rounded-md whitespace-nowrap ${statusFilter === status ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>{status}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                                    <table className="w-full text-left border-collapse whitespace-nowrap">
+                                        <thead className="sticky top-0 bg-slate-50 z-10 shadow-sm">
+                                            <tr className="text-slate-500 uppercase text-[9px] tracking-wider border-b border-slate-200">
+                                                <th className="p-3 font-bold">รหัส</th><th className="p-3 font-bold">ชื่อ-สกุล</th><th className="p-3 font-bold">สถานะ</th><th className="p-3 font-bold text-center">เวลาเข้า</th><th className="p-3 font-bold text-center">OT</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {filteredEmployees.length > 0 ? filteredEmployees.map(emp => (
+                                                <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="p-3 text-slate-500 font-mono text-[10px]">{emp.id}</td>
+                                                    <td className="p-3 font-bold text-slate-700 text-xs">{emp.name}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${emp.status === 'เข้างาน' ? 'bg-green-50 text-green-700 border-green-200' : emp.status === 'ขาดงาน' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-yellow-50 text-yellow-700 border-yellow-200'}`}>{emp.status}</span>
+                                                    </td>
+                                                    <td className="p-3 text-center text-slate-600 font-semibold text-[10px]">{emp.timeIn}</td>
+                                                    <td className="p-3 text-center"><span className={emp.ot > 0 ? "text-indigo-600 font-extrabold text-xs" : "text-slate-300 font-medium text-xs"}>{emp.ot > 0 ? `+${emp.ot}` : '-'}</span></td>
+                                                </tr>
+                                            )) : <tr><td colSpan="5" className="p-6 text-center text-slate-400 italic text-xs">ไม่พบข้อมูล</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+
+                            <div className="lg:col-span-5 space-y-4 w-full">
+                                <section className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm w-full">
+                                    <h3 className="font-extrabold text-slate-700 mb-1 text-sm">📊 วิเคราะห์ทำงานล่วงเวลา</h3>
+                                    <div className="relative w-full h-48 sm:h-56"><canvas ref={canvasRef}></canvas></div>
+                                </section>
+                                <section className="bg-slate-900 text-slate-200 p-4 rounded-2xl border border-slate-800 shadow-lg relative overflow-hidden w-full">
+                                    <h3 className="font-extrabold text-white flex items-center gap-1.5 text-xs"><span className="text-emerald-400">⚡</span> สถานะ API ฐานข้อมูล</h3>
+                                    <div className="mt-3"><button onClick={() => showToast("บันทึกข้อมูลตารางเวลาสำเร็จ")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] py-2 px-4 rounded-lg w-full">💾 บันทึกและซิงค์รายงาน</button></div>
+                                </section>
+                            </div>
+                        </div>
+
+                        {toastMessage && (
+                            <div className="fixed bottom-6 right-6 z-[250] bg-slate-900 text-white py-2 px-4 rounded-xl shadow-2xl flex items-center gap-2 border border-slate-800 text-xs font-bold animate-fade-in">
+                                <span className="text-emerald-400">✓</span>{toastMessage}
+                            </div>
+                        )}
                     </div>
                 </div>
             );
@@ -1703,6 +1839,249 @@
                 </div>
             );
         };
+
+        
+        // ============================================================
+        // COMPONENT: SetupTab (DevOps Wizard)
+        // ============================================================
+        function SetupTab({ showNotification }) {
+            const reportData = [
+                {
+                    id: 1, icon: "🛠️", title: "ขอรับสิทธิ์ Gemini API Key", desc: "เพื่อเปิดใช้งานระบบการวิเคราะห์ Metadata อัตโนมัติด้วย AI คุณจำเป็นต้องมี API Key ก่อน",
+                    content: `
+                        <ol class="list-decimal list-inside space-y-4 text-slate-700 text-sm pl-2">
+                            <li class="pl-2">เข้าไปที่เว็บ <a href="https://aistudio.google.com/" target="_blank" class="text-indigo-600 font-bold hover:underline">Google AI Studio</a></li>
+                            <li class="pl-2">ลงชื่อเข้าใช้งานด้วยบัญชี Google ของคุณ</li>
+                            <li class="pl-2">คลิกปุ่ม <strong class="bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Get API Key</strong></li>
+                            <li class="pl-2">คลิก <strong class="bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Create API Key</strong> แล้วเลือกโปรเจกต์ของคุณ</li>
+                            <li class="pl-2">ทำการคัดลอก (Copy) รหัส API Key เก็บไว้ <span class="text-xs text-slate-400 font-mono">(เช่น AIzaSy...)</span></li>
+                        </ol>
+                        <div class="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
+                            ⚠️ <strong>ข้อควรระวัง:</strong> ห้ามเปิดเผย API Key ของคุณให้ผู้อื่นทราบเด็ดขาด
+                        </div>
+                    `
+                },
+                {
+                    id: 2, icon: "📊", title: "เตรียม Google Spreadsheet หลัก", desc: "สร้างรากฐานสำหรับการทำงานของระบบ DevOps",
+                    content: `
+                        <ol class="list-decimal list-inside space-y-4 text-slate-700 text-sm pl-2">
+                            <li class="pl-2">สร้างสเปรดชีตเปล่าขึ้นมาใหม่ที่ <a href="https://sheets.new" target="_blank" class="text-indigo-600 font-bold hover:underline">Google Sheets</a></li>
+                            <li class="pl-2">ตั้งชื่อไฟล์ตามต้องการ เช่น <strong class="font-mono text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">Smart Worksite - DevOps System</strong></li>
+                            <li class="pl-2">
+                                <strong class="text-rose-600">ข้อสำคัญ:</strong> คุณไม่จำเป็นต้องสร้างแท็บ (Sheet) อื่น ๆ ด้วยตัวเอง เพราะระบบจะสร้างแท็บทั้งหมดให้โดยอัตโนมัติเมื่อรันสคริปต์ติดตั้ง
+                            </li>
+                        </ol>
+                    `
+                },
+                {
+                    id: 3, icon: "💻", title: "นำสคริปต์ไปติดตั้งใน Apps Script", desc: "ฝังระบบประมวลผลอัจฉริยะเข้ากับ Google Sheets",
+                    content: `
+                        <ol class="list-decimal list-inside space-y-4 text-slate-700 text-sm pl-2">
+                            <li class="pl-2">ที่แถบเมนูด้านบนของ Google Sheets คลิกที่ <strong>ส่วนขยาย (Extensions)</strong> ➡️ <strong>Apps Script</strong></li>
+                            <li class="pl-2">ลบโค้ดเริ่มต้นในไฟล์ <code class="bg-slate-100 text-rose-600 px-1 rounded">รหัส.gs</code> (หรือ Code.gs) ออกให้หมด</li>
+                            <li class="pl-2">คัดลอกซอร์สโค้ด Apps Script ทั้งหมดของคุณ ไปวางลงในพื้นที่แก้ไข</li>
+                            <li class="pl-2">คลิกปุ่ม <strong>บันทึกโครงการ (Save project - ไอคอนแผ่นดิสก์ 💾)</strong> ด้านบน</li>
+                        </ol>
+                    `
+                },
+                {
+                    id: 4, icon: "🔑", title: "กำหนดค่า API Key ใน Script Properties", desc: "เพื่อความปลอดภัยสูงและไม่ให้รหัส API Key ของคุณหลุดไปในหน้าโค้ดดิบ ให้ทำการบันทึกคีย์ผ่านคุณสมบัติของสคริปต์",
+                    content: `
+                        <ol class="list-decimal list-inside space-y-4 text-slate-700 text-sm pl-2">
+                            <li class="pl-2">ที่แถบเมนูซ้ายมือของหน้า Apps Script คลิกที่ไอคอนรูปเฟือง <strong>"ตั้งค่าโครงการ" (Project Settings)</strong></li>
+                            <li class="pl-2">เลื่อนลงมาด้านล่างสุดจนพบหัวข้อ <strong>"คุณสมบัติของสคริปต์" (Script Properties)</strong></li>
+                            <li class="pl-2">คลิกที่ปุ่ม <strong>"เพิ่มคุณสมบัติของสคริปต์" (Add script property)</strong></li>
+                            <li class="pl-2 bg-slate-50 p-4 rounded-lg border border-slate-200 mt-2">
+                                กำหนดค่าในช่องดังนี้:<br><br>
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="w-24 text-slate-500 font-bold text-xs uppercase">คุณสมบัติ:</span>
+                                    <code id="prop-name" class="bg-white border border-slate-300 px-3 py-1.5 rounded text-indigo-700 font-bold flex-1 select-all">GEMINI_API_KEY</code>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-24 text-slate-500 font-bold text-xs uppercase">ค่า (Value):</span>
+                                    <span class="bg-white border border-slate-300 px-3 py-1.5 rounded text-slate-500 flex-1 italic text-xs">วางรหัส API Key ที่ได้จากขั้นตอนที่ 1</span>
+                                </div>
+                            </li>
+                            <li class="pl-2 mt-4">คลิกปุ่ม <strong>"บันทึกคุณสมบัติของสคริปต์"</strong> (Save script properties)</li>
+                        </ol>
+                    `
+                },
+                {
+                    id: 5, icon: "🚀", title: "เริ่มต้นทำงานและให้สิทธิ์ (Authorization)", desc: "การรันระบบครั้งแรกและการยืนยันความปลอดภัยของบัญชี Google",
+                    content: `
+                        <ol class="list-decimal list-inside space-y-3 text-slate-700 text-sm pl-2">
+                            <li class="pl-2">สลับกลับมาที่หน้าโค้ดคลิกที่เมนู <strong>"ตัวแก้ไข"</strong> (Editor - ไอคอน <code>&lt; &gt;</code>)</li>
+                            <li class="pl-2">ด้านบนปุ่มเรียกใช้ เลือกฟังก์ชันชื่อ <code class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold">initializeDevopsWorkspace</code> จากตัวเลือกดรอปดาวน์</li>
+                            <li class="pl-2">คลิกปุ่ม <strong>"เรียกใช้" (Run)</strong></li>
+                        </ol>
+                        
+                        <div class="mt-5 p-4 border-l-4 border-rose-500 bg-rose-50 rounded-r-lg">
+                            <h4 class="font-bold text-rose-800 mb-2">⚠️ ขั้นตอนสำคัญ (การอนุญาตสิทธิ์):</h4>
+                            <ul class="list-disc list-inside space-y-2 text-rose-700 text-xs pl-2">
+                                <li>ระบบจะแสดงหน้าต่างยืนยันสิทธิ์ ให้คลิกที่ <strong>"ตรวจสอบสิทธิ์" (Review Permissions)</strong></li>
+                                <li>เลือกบัญชี Google ของคุณ</li>
+                                <li>เมื่อขึ้นเตือนว่า <em>"Google ยังไม่ได้ตรวจสอบแอปนี้"</em> ไม่ต้องตกใจ ให้คลิกที่คำว่า <strong>"ขั้นสูง" (Advanced)</strong> ด้านซ้ายล่าง</li>
+                                <li>คลิกที่ลิงก์ด้านล่าง <strong>"ไปที่ Smart Worksite - DevOps (ไม่ปลอดภัย)"</strong></li>
+                                <li>เลื่อนลงมาแล้วคลิก <strong>"อนุญาต" (Allow)</strong></li>
+                            </ul>
+                        </div>
+                    `
+                },
+                {
+                    id: 6, icon: "🏃‍♂️", title: "การใช้งานจริงบน Google Sheets", desc: "หลังจากติดตั้งเสร็จสิ้น คุณจะมีเมนูพิเศษบน Google Sheets ของคุณ",
+                    content: `
+                        <p class="text-sm text-slate-700 mb-4">เมื่อคุณกลับไปที่หน้า Google Sheets คุณจะพบแถบเมนูสั่งการพิเศษเพิ่มขึ้นมาบนแถบเครื่องมือชื่อ <strong class="text-indigo-700 bg-indigo-50 px-2 py-1 rounded">🚀 Smart Worksite DevOps</strong></p>
+                        
+                        <div class="space-y-4">
+                            <div class="border border-slate-200 rounded-xl overflow-hidden">
+                                <div class="bg-slate-50 px-4 py-2 border-b border-slate-200 font-bold text-slate-800 text-sm">
+                                    🔄 ⚡ ซิงค์แดชบอร์ดสรุปและอัปเดตข้อมูล (Auto API Sync)
+                                </div>
+                                <div class="p-4 text-sm text-slate-600 bg-white">
+                                    <ul class="list-disc list-inside space-y-1">
+                                        <li>สแกนหาฟังก์ชันทั้งหมดในแท็บย่อย นำมาร้อยเรียงสร้างสารบัญในหน้าหลัก "โค้ดหลัก"</li>
+                                        <li>สร้างลิงก์สูตร <code class="text-indigo-600">=HYPERLINK</code> เพื่อให้กดจัมป์ไปยังบรรทัดโค้ดจริงได้ทันที</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    `
+                }
+            ];
+
+            const [currentStepIndex, setCurrentStepIndex] = useState(0);
+            const [completedSteps, setCompletedSteps] = useState(new Set());
+            const progressChartRef = useRef(null);
+            const impactChartRef = useRef(null);
+            
+            const step = reportData[currentStepIndex];
+            const isCompleted = completedSteps.has(step.id);
+
+            const toggleComplete = () => {
+                const newSet = new Set(completedSteps);
+                if (newSet.has(step.id)) {
+                    newSet.delete(step.id);
+                } else {
+                    newSet.add(step.id);
+                    if (currentStepIndex < reportData.length - 1) {
+                        setTimeout(() => setCurrentStepIndex(currentStepIndex + 1), 600);
+                    }
+                }
+                setCompletedSteps(newSet);
+                showNotification(newSet.has(step.id) ? 'ทำเครื่องหมายว่าเสร็จสิ้นแล้ว' : 'ยกเลิกการทำเครื่องหมาย');
+            };
+
+            useEffect(() => {
+                const ctxP = document.getElementById('progressChart')?.getContext('2d');
+                const ctxI = document.getElementById('impactChart')?.getContext('2d');
+                if(!window.Chart) return;
+                
+                if(ctxP) {
+                    if(progressChartRef.current) progressChartRef.current.destroy();
+                    const completed = completedSteps.size;
+                    const remaining = reportData.length - completed;
+                    progressChartRef.current = new Chart(ctxP, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['เสร็จสมบูรณ์', 'รอการติดตั้ง'],
+                            datasets: [{ data: [completed, remaining], backgroundColor: ['#10b981', '#f1f5f9'], borderWidth: 0 }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+                    });
+                }
+                
+                if(ctxI) {
+                    if(impactChartRef.current) impactChartRef.current.destroy();
+                    impactChartRef.current = new Chart(ctxI, {
+                        type: 'bar',
+                        data: {
+                            labels: ['สร้างโครงสร้างแท็บ', 'วิเคราะห์ JSDoc', 'ค้นหาช่องโหว่โค้ด'],
+                            datasets: [
+                                { label: 'ทำด้วยตัวเอง', data: [30, 120, 180], backgroundColor: '#94a3b8', borderRadius: 4 },
+                                { label: 'DevOps & Gemini AI', data: [1, 5, 2], backgroundColor: '#6366f1', borderRadius: 4 }
+                            ]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false } }, plugins: { legend: { display: false } } }
+                    });
+                }
+                
+                return () => {
+                    if(progressChartRef.current) progressChartRef.current.destroy();
+                    if(impactChartRef.current) impactChartRef.current.destroy();
+                }
+            }, [completedSteps]);
+
+            const percent = Math.round((completedSteps.size / reportData.length) * 100);
+
+            return (
+                <div className="flex flex-col md:flex-row bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden min-h-[500px]">
+                    <nav className="w-full md:w-64 bg-slate-900 text-white flex flex-col shrink-0">
+                        <div className="p-4 border-b border-slate-800">
+                            <div className="text-xl font-black mb-1 text-emerald-400">🚀 DevOps</div>
+                            <h1 className="text-sm font-bold text-slate-200">Smart Worksite Setup</h1>
+                        </div>
+                        <div className="p-3 flex-1 overflow-y-auto">
+                            <ul className="space-y-1">
+                                {reportData.map((s, index) => {
+                                    const isActive = index === currentStepIndex;
+                                    const isDone = completedSteps.has(s.id);
+                                    return (
+                                        <li key={s.id} onClick={() => setCurrentStepIndex(index)} className={`cursor-pointer rounded-lg px-2 py-2 transition flex items-center gap-2 text-[10px] sm:text-xs ${isActive ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+                                            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${isDone && !isActive ? 'bg-emerald-500 text-white' : isActive ? 'bg-white text-indigo-700' : 'bg-slate-700'}`}>
+                                                {isDone && !isActive ? '✓' : s.id}
+                                            </div>
+                                            <span className="truncate">{s.title}</span>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+                    </nav>
+                    
+                    <main className="flex-1 flex flex-col bg-slate-50">
+                        <header className="bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center shrink-0">
+                            <h2 className="text-sm sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <span>{step.icon}</span> ขั้นตอนที่ {step.id}: {step.title}
+                            </h2>
+                            <span className={`px-2 py-1 rounded-full text-[9px] sm:text-xs font-bold border ${isCompleted ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                {isCompleted ? 'เสร็จสิ้นแล้ว' : 'รอการดำเนินการ'}
+                            </span>
+                        </header>
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                            {currentStepIndex === 0 && (
+                                <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-4 text-xs sm:text-sm text-indigo-900">
+                                    <strong>📌 เกี่ยวกับคู่มือนี้:</strong> ระบบนี้จะเปลี่ยน Google Sheets ของคุณให้เป็น DevOps Workspace พร้อมใช้งาน AI
+                                </div>
+                            )}
+                            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+                                <p className="text-slate-500 font-medium mb-4 text-xs border-b border-slate-100 pb-2">{step.desc}</p>
+                                <div dangerouslySetInnerHTML={{__html: step.content}}></div>
+                                <div className="flex justify-between items-center mt-6">
+                                    <button onClick={() => setCurrentStepIndex(p => Math.max(0, p-1))} className={`px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs ${currentStepIndex === 0 ? 'invisible' : ''}`}>ย้อนกลับ</button>
+                                    <button onClick={toggleComplete} className={`px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 transition ${isCompleted ? 'bg-slate-100 text-slate-600' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                                        {isCompleted ? 'ยกเลิกเครื่องหมาย' : '✔️ ทำเครื่องหมายว่าเสร็จสิ้น'}
+                                    </button>
+                                    <button onClick={() => setCurrentStepIndex(p => Math.min(reportData.length-1, p+1))} className={`px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs ${currentStepIndex === reportData.length-1 ? 'invisible' : ''}`}>ถัดไป</button>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                    
+                    <aside className="w-full md:w-64 bg-white border-l border-slate-200 p-4 flex flex-col shrink-0">
+                        <div className="mb-6">
+                            <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">ความคืบหน้าการติดตั้ง</h4>
+                            <div className="relative w-full h-32"><canvas id="progressChart"></canvas></div>
+                            <p className={`text-center text-xl font-black mt-1 ${percent === 100 ? 'text-emerald-500' : 'text-indigo-600'}`}>{percent}%</p>
+                        </div>
+                        <hr className="border-slate-100 mb-4" />
+                        <div>
+                            <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">ประสิทธิภาพ (นาที)</h4>
+                            <div className="relative w-full h-32"><canvas id="impactChart"></canvas></div>
+                        </div>
+                    </aside>
+                </div>
+            );
+        }
 
         // ============================================================
         // COMPONENT: AdminTab
@@ -1913,6 +2292,8 @@
                 { id:'stats',      label: t('stats'),            icon:<Icon.Chart c="w-4.5 h-4.5"/>,    color:'text-amber-600',  bg:'bg-amber-50' },
                 { id:'archive',    label: t('archive'),          icon:<Icon.Folder c="w-4.5 h-4.5"/>,   color:'text-emerald-600',bg:'bg-emerald-50' },
                 { id:'admin',      label: t('admin'),            icon:<Icon.Users c="w-4.5 h-4.5"/>,    color:'text-slate-600',  bg:'bg-slate-100', adminOnly:true },
+            ,
+                { id:'setup',      label: 'ตั้งค่าระบบ',          icon:<Icon.Gear c="w-4.5 h-4.5"/>,    color:'text-rose-600',  bg:'bg-rose-50', adminOnly:true }
             ];
 
             const handleTabChange = (id) => {
@@ -2045,9 +2426,10 @@
                             {activeTab === 'app' && <AppTab employees={employees} dailyReports={dailyReports} setDailyReports={setDailyReports} showNotification={showNotification} setActiveTab={handleTabChange} isAdmin={isAdmin} dropdownData={dropdownData} t={t} />}
                             {activeTab === 'ai-tools' && <AiToolsTab showNotification={showNotification} />}
                             {activeTab === 'ai-admin' && <AiAdminTab isAdmin={isAdmin} userEmail={userEmail} showNotification={showNotification} />}
-                            {activeTab === 'stats' && <StatsTab dailyReports={dailyReports} safetyHistory={safetyHistory} stats={stats} />}
+                            {activeTab === 'stats' && <StatsTab employees={employees} dailyReports={dailyReports} safetyHistory={safetyHistory} stats={stats} t={t} />}
                             {activeTab === 'archive' && <ArchiveTab dailyReports={dailyReports} setDailyReports={setDailyReports} showNotification={showNotification} />}
-                            {activeTab === 'admin' && <AdminTab employees={employees} setEmployees={setEmployees} isAdmin={isAdmin} showNotification={showNotification} />}
+                            {activeTab === 'admin' && <AdminTab employees={employees}
+                            {activeTab === 'setup' && <SetupTab showNotification={showNotification} />} setEmployees={setEmployees} isAdmin={isAdmin} showNotification={showNotification} />}
                         </main>
                     </div>
 
