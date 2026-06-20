@@ -100,10 +100,10 @@ function saveDailyReport(payload) {
     
     if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[monthIndex]) {
       targetFileId = MONTHLY_FILE_IDS[monthIndex];
-    } else if (typeof getTargetFileIdByDate === 'function') {
-      // Fallback: ใช้ฟังก์ชัน getTargetFileIdByDate จาก SharedFunctions
+    } else if (typeof getTargetFileIdByDateOptimized === 'function') {
+      // Fallback: ใช้ฟังก์ชัน getTargetFileIdByDateOptimized จาก SharedFunctions
       var ddmmyyyy = targetDate.getDate() + "/" + (targetDate.getMonth() + 1) + "/" + targetDate.getFullYear();
-      targetFileId = getTargetFileIdByDate(ddmmyyyy);
+      targetFileId = getTargetFileIdByDateOptimized(ddmmyyyy);
     }
     
     if (!targetFileId) {
@@ -140,16 +140,16 @@ function saveDailyReport(payload) {
     }
 
     // 📝 บันทึก Audit Trail
-    if (typeof logAuditTrail === "function") {
-      logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + employees.length + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
+    if (typeof logToCloud === "function") {
+      logToCloud("WEB_APP", "INFO", "SAVE_DAILY_REPORT SUCCESS: " + site + " | " + employees.length + " คน", { user: Session.getActiveUser().getEmail() || "WEB_USER", Date: thaiFullDate });
     }
 
     return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + employees.length + " คน)" };
 
   } catch (err) {
     // บันทึก Error ลง Audit
-    if (typeof logAuditTrail === "function") {
-      logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", JSON.stringify(payload).substring(0, 500), "", 0, "ERROR", err.toString());
+    if (typeof logToCloud === "function") {
+      logToCloud("WEB_APP", "ERROR", "SAVE_DAILY_REPORT ERROR: " + err.toString(), { payload: JSON.stringify(payload).substring(0, 500) });
     }
     return { success: false, message: "Backend Error: " + err.toString() };
   } finally {
@@ -159,10 +159,26 @@ function saveDailyReport(payload) {
   }
 }
 function doGet(e) {
-  // โหลดหน้า index.html และตั้งค่า Viewport สำหรับมือถือ
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('Smart Worksite System')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  // ============================================================
+  // MAIN ROUTER
+  // ============================================================
+  try {
+    // 1. เรียกใช้งาน Router หลักจาก WebApp_GeminiTools.gs
+    if (typeof handleGeminiWebTool === 'function') {
+      return handleGeminiWebTool(e);
+    }
+    
+    // 2. Fallback กรณีหาฟังก์ชันไม่เจอ
+    return HtmlService.createHtmlOutputFromFile('index')
+      .setTitle('Smart Worksite System')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  } catch (err) {
+    if (typeof logToCloud === 'function') {
+      logToCloud("System_WebApp", "ERROR", "Main Router doGet Error: " + err.message, { event: e });
+    }
+    return HtmlService.createHtmlOutputFromFile('index')
+      .setTitle('Smart Worksite System (Error Recovery)');
+  }
 }
 function fetchGoogleChatSpaces() {
   try {

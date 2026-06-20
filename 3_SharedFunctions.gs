@@ -5,28 +5,25 @@
 // -----------------------------------------------------------------
 // 🧠 1. ระบบ AI (Gemini) และระบบ Retry
 // -----------------------------------------------------------------
-function fetchWithRetry(url, payload, isJson, attempts = 3, backoffMs = 500) {
-  const options = { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true };
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = UrlFetchApp.fetch(url, options);
-      if (res.getResponseCode() >= 200 && res.getResponseCode() < 300) {
-        const json = JSON.parse(res.getContentText());
-        if (json.candidates && json.candidates[0].content) {
-          let text = json.candidates[0].content.parts[0].text;
-          if (isJson) return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
-          return text;
-        }
-      }
-    } catch (e) { Utilities.sleep(backoffMs * Math.pow(2, i)); }
-  }
-  return null;
-}
-
+// -----------------------------------------------------------------
+// 🧠 1. ระบบ AI (Gemini) และระบบ Retry
+// -----------------------------------------------------------------
 async function callGeminiVision(base64Str, system, mimeType) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${getDynamicConfig('MODEL_NAME')}:generateContent?key=${getDynamicConfig('GEMINI_API_KEY')}`;
   const payload = { contents: [{ parts: [{ text: "Extract worker codes." }, { inlineData: { mimeType: mimeType, data: base64Str } }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: { responseMimeType: "application/json" } };
-  return fetchWithRetry(url, payload, true);
+  
+  return withExponentialBackoff(() => {
+    const options = { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true };
+    const res = UrlFetchApp.fetch(url, options);
+    if (res.getResponseCode() >= 200 && res.getResponseCode() < 300) {
+      const json = JSON.parse(res.getContentText());
+      if (json.candidates && json.candidates[0].content) {
+        let text = json.candidates[0].content.parts[0].text;
+        return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+      }
+    }
+    throw new Error("Gemini Vision request failed");
+  });
 }
 
 async function processMessageWithAI(message) {
@@ -246,14 +243,7 @@ function checkDate(s) {
   return diff<=0 ? {status:"OK"} : (diff<=limit ? {status:"WARNING", msg:`ส่งย้อนหลัง ${diff} วัน`} : {status:"BLOCK", msg:`ห้ามส่งย้อนหลังเกิน ${limit} วัน`});
 }
 
-function logErrorToSheet(fileId, originalMsg, errorMsg) {
-  if (!fileId) return;
-  try {
-    const ss = SpreadsheetApp.openById(fileId); let logSheet = ss.getSheetByName("Error_Log");
-    if (!logSheet) { logSheet = ss.insertSheet("Error_Log"); logSheet.appendRow(["วัน-เวลา", "ข้อความ", "สาเหตุ", "สถานะ"]); logSheet.getRange("A1:D1").setFontWeight("bold"); }
-    logSheet.appendRow([Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss"), originalMsg, errorMsg, "รอตรวจสอบ ❌"]);
-  } catch (e) {}
-}
+
 function getEmployeesByCodes(codes) {
   try {
     const sheet = SpreadsheetApp.openById(GLOBAL_CONFIG.EXTERNAL_DATABASE_ID).getSheetByName(GLOBAL_CONFIG.DATABASE_SHEET_NAME);
@@ -279,7 +269,7 @@ function handleCheckAbsent(date) {
 }
 
 function undoLastEntry(name, dateStr) {
-  const targetFileId = getTargetFileIdByDate(dateStr); 
+  const targetFileId = getTargetFileIdByDateOptimized(dateStr); 
   if (!targetFileId) return "❌ ไม่พบไฟล์ของเดือนนี้";
   const ss = SpreadsheetApp.openById(targetFileId); 
   const sheetName = parseThaiDate(dateStr); 
@@ -322,24 +312,7 @@ function fixAllOTInSheet() {
 // -----------------------------------------------------------------
 // 🛠️ ฟังก์ชันเสริมประสิทธิภาพฉบับ Hotfix แบบไม่พึ่งพารายการนอกไฟล์
 // -----------------------------------------------------------------
-function getTargetFileIdByDate(dateStr) {
-  let mIndex = new Date().getMonth(); 
-  if (dateStr) { 
-    const p = String(dateStr).replace("#", "").trim().split(/[\/\-.]/); 
-    if (p.length >= 2) { 
-      let m = parseInt(p[1], 10) - 1; 
-      if (m >= 0 && m <= 11) mIndex = m; 
-    } 
-  }
-  
-  // 📂 อ้างอิงตาม MONTHLY_FILE_IDS ของ 4_Config ล่าสุด
-  if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[mIndex]) {
-    return MONTHLY_FILE_IDS[mIndex];
-  }
-  
-  // Fallback: ใช้ฐานข้อมูลกลางแทน (ลบ backupIds ออก — ให้ MONTHLY_FILE_IDS ใน Config.gs เป็นแหล่งเดียว)
-  return getDynamicConfig("EXTERNAL_DATABASE_ID");
-}
+
 
 // ⚠️ [CONSOLIDATED] getDynamicPrompt() ถูกรวมไปไว้ที่ 7_AI_Assistant.gs (เวอร์ชันเต็มที่อ่านจาก Script Properties ก่อน)
 // ป้องกัน GAS "last wins" override ที่ทำให้ AI prompt ไม่สามารถอัปเดตผ่าน setDynamicPrompt() ได้
@@ -386,56 +359,7 @@ function parseThaiDate(s) {
 // ⚠️ [CONSOLIDATED] getDynamicConfig() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)
 // เวอร์ชันใน Config.gs รองรับ defaultValue + GLOBAL_CONFIG fallback + Cache prefix ป้องกันชนกัน
 
-/**
- * 🛡️ ระบบบันทึก Audit Trail สำหรับการตรวจสอบ Monitor และ CI/CD Pipeline
- * @param {string} actionType - ประเภทเหตุการณ์ (เช่น SYSTEM_ERROR, USER_ACTION)
- * @param {string} status - สถานะ (เช่น SUCCESS, RUNTIME_EXCEPTION, REJECT)
- * @param {string} payload - ข้อมูลที่เกี่ยวข้อง หรือ Payload ที่ถูกยิงมา
- * @param {string} user - ผู้กระทำ (ถ้ามี)
- * @param {number} execTime - เวลาที่ใช้ประมวลผล (ms)
- * @param {string} level - ระดับความรุนแรง (INFO, WARN, ERROR, CRITICAL)
- * @param {string} errorMessage - รายละเอียดข้อผิดพลาดเชิงลึก
- */
-function logAuditTrail(actionType, status, payload, user, execTime, level, errorMessage) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet(); // หากต้องการชี้ไปไฟล์อื่นให้ใช้ openById
-    const sheetName = "AuditLog";
-    let sheet = ss.getSheetByName(sheetName);
 
-    // สร้างหน้า Sheet อัตโนมัติหากยังไม่มี เพื่อป้องกันระบบพัง
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["Timestamp", "Level", "Action", "Status", "User", "ExecutionTime(ms)", "Payload", "ErrorMessage"]);
-      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#e0e0e0");
-      sheet.setFrozenRows(1);
-    }
-
-    const timestamp = new Date();
-    // จัดการข้อมูลให้ปลอดภัย ป้องกันช่องโหว่ความยาวข้อมูลเกินโควต้าชีต
-    const safePayload = typeof payload === 'object' ? JSON.stringify(payload) : String(payload || "");
-    const safeError = String(errorMessage || "");
-
-    sheet.appendRow([
-      timestamp,
-      level || "INFO",
-      actionType || "UNKNOWN",
-      status || "UNKNOWN",
-      user || "SYSTEM",
-      execTime || 0.0,
-      safePayload.substring(0, 1000), // ตัดคำให้ไม่เกิน 1,000 ตัวอักษรป้องกันล้น
-      safeError.substring(0, 1000)
-    ]);
-
-    // แจ้งเตือนแบบ Real-time ลง Console ของนักพัฒนาหากเกิด ERROR
-    if (level === "ERROR" || level === "CRITICAL") {
-      console.error(`[AUDIT ${level}] ${actionType}: ${safeError}`);
-    }
-
-  } catch (e) {
-    // ปราการด่านสุดท้าย ไม่ให้ระบบหลักล่มหาก Audit พัง
-    console.error(`[CRITICAL] ระบบ AuditTrail ล้มเหลว: ${e.message}`);
-  }
-}
 // =================================================================
 // 🏛️ สร้างหน้าต่างห้องรับแขก (UI Layout แบบเดิม)
 // =================================================================

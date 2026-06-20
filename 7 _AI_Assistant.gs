@@ -71,7 +71,7 @@ function processUserChat(prompt, userId, replyToken) {
       var diffDays = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (diffDays > currentLogic.backdate_limit && !isAdmin) {
-        logAuditTrail(userId, "SAVE_DENIED", prompt, JSON.stringify(data.payload), 0.0, "REJECT", "Gating blocked");
+        logToBigQueryEnterprise(userId, "SAVE_DENIED", prompt + " | " + JSON.stringify(data.payload), "REJECT");
         return { success: false, text: `❌ ไม่สามารถลงข้อมูลย้อนหลังเกิน ${currentLogic.backdate_limit} วันครับ (จำกัดสิทธิ์ Admin)` };
       }
       
@@ -125,7 +125,7 @@ function updateLogic(newLogicJson, updatedBy, note) {
     for (var p in parsed) { mergedLogic[p] = parsed[p]; }
     
     scriptProperties.setProperty('DYNAMIC_SYSTEM_LOGIC', JSON.stringify(mergedLogic));
-    logAuditTrail(updatedBy, "MUTATE_LOGIC", "Update Execution Line", JSON.stringify(mergedLogic), 1.0, "CLEAR", note);
+    logToBigQueryEnterprise(updatedBy, "MUTATE_LOGIC", "Update Execution Line | " + note, "SUCCESS");
 
     return { success: true, message: "✅ อัปเดตตรรกะระบบเรียบร้อยแล้วครับ" };
   } catch (e) {
@@ -192,7 +192,7 @@ function rollbackLogic(userId, step) {
     
     addLogicHistory(currentLogic, "Admin", "rollback", "บันทึกค่าก่อนย้อนระบบกลับ " + step + " ขั้น");
     props.setProperty('DYNAMIC_SYSTEM_LOGIC', JSON.stringify(rollbackItem.logic));
-    logAuditTrail(userId, "ROLLBACK_EXEC", "Rollback Triggered Step: " + step, JSON.stringify(rollbackItem.logic), 1.0, "CLEAR", "Success");
+    logToBigQueryEnterprise(userId, "ROLLBACK_EXEC", "Rollback Triggered Step: " + step, "SUCCESS");
 
     return { success: true, message: `↩️ กู้คืนตรรกะระบบย้อนหลัง ${ step } ชั้นสำเร็จแล้วครับ` };
   } catch(e) {
@@ -206,35 +206,7 @@ function rollbackLogic(userId, step) {
 // 3. ระบบการสร้าง Audit Trail และเครื่องมือ DevOps
 // ==========================================
 
-function logAuditTrail(userId, actionType, inputRaw, machineStructured, confidence, userAction, executionMessage) {
-  try {
-    var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
-    if (!dbId) return;
-    
-    // ดึง Spreadsheet จาก Cache ถ้ามี หรือเปิดใหม่
-    var ss = typeof getCachedSpreadsheet === 'function' ? getCachedSpreadsheet(dbId) : SpreadsheetApp.openById(dbId);
-    var sheet = ss.getSheetByName("Audit_Log") || ss.insertSheet("Audit_Log");
-    
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["วัน-เวลา", "LINE User ID", "ประเภทเหตุการณ์", "ข้อความอินพุตดิบ", "โครงสร้างข้อมูลระดับเครื่อง", "คะแนนความมั่นใจ", "การดำเนินการของยูสเซอร์", "บันทึกข้อความจากเซิร์ฟเวอร์"]);
-      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#cfe2ff").setHorizontalAlignment("center");
-      sheet.setFrozenRows(1);
-    }
-    
-    sheet.appendRow([
-      Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss"),
-      userId || "SYSTEM",
-      actionType,
-      inputRaw || "",
-      machineStructured || "",
-      confidence || 1.0,
-      userAction || "",
-      executionMessage || ""
-    ]);
-  } catch (err) {
-    console.error("Critical Failure in Log Audit Trail Pipeline: " + err.message);
-  }
-}
+
 
 function runDevOpsCliCommand(commandString) {
   var args = commandString.trim().split(" ");

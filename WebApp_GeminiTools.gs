@@ -18,7 +18,7 @@
 // วิธีใช้ใน index.html:
 //   <div id="gas-data-bridge" style="display:none;"><?= appConfig ?></div>
 // ============================================================
-function doGet(e) {
+function handleGeminiWebTool(e) {
   try {
     const page = e.parameter.page;
     if (page === 'manual') {
@@ -59,7 +59,7 @@ function doGet(e) {
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 
   } catch (err) {
-    logError("doGet_WebApp", err.message, "");
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "doGet_WebApp" });
     return HtmlService.createHtmlOutputFromFile('index')
       .setTitle('Smart Worksite System V.6');
   }
@@ -120,7 +120,7 @@ function handleWebAppGateway(payload) {
         ).setMimeType(ContentService.MimeType.JSON);
     }
   } catch (err) {
-    logError("handleWebAppGateway", err.message, JSON.stringify(payload));
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "handleWebAppGateway", payload: payload });
     return ContentService.createTextOutput(
       JSON.stringify({ status: "ERROR", error: err.message })
     ).setMimeType(ContentService.MimeType.JSON);
@@ -146,7 +146,7 @@ function callGeminiAiChat(userMessage) {
     const reply = callGemini(userMessage, systemPrompt, false);
     return reply || "ขอโทษครับ ระบบ AI ไม่ได้รับคำตอบในขณะนี้ กรุณาลองใหม่อีกครั้ง";
   } catch (err) {
-    logError("callGeminiAiChat", err.message, userMessage);
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "callGeminiAiChat", userMessage: userMessage });
     return "⚠️ เกิดข้อผิดพลาดในการเชื่อม Gemini API: " + err.message;
   }
 }
@@ -196,7 +196,7 @@ function callGeminiTool(action, inputText, lang) {
     const result = callGemini(inputText, systemPrompt, false);
     return result || "⚠️ ไม่ได้รับผลลัพธ์จาก AI กรุณาลองใหม่";
   } catch (err) {
-    logError("callGeminiTool_" + action, err.message, inputText);
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "callGeminiTool_" + action, inputText: inputText });
     return "❌ เกิดข้อผิดพลาด: " + err.message;
   }
 }
@@ -235,7 +235,7 @@ function callGeminiAdminTool(action, inputText) {
     const result = callGemini(inputText, systemPrompt, false);
     return result || "⚠️ ไม่ได้รับผลลัพธ์จาก AI";
   } catch (err) {
-    logError("callGeminiAdminTool_" + action, err.message, inputText);
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "callGeminiAdminTool_" + action, inputText: inputText });
     return "❌ เกิดข้อผิดพลาด: " + err.message;
   }
 }
@@ -266,7 +266,7 @@ JSON format:
     const result = callGemini(text, systemPrompt, true); // isJson = true
     return result;
   } catch (err) {
-    logError("processNlpTimelogFromWeb", err.message, text);
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "processNlpTimelogFromWeb", text: text });
     return { error: err.message };
   }
 }
@@ -311,7 +311,7 @@ function getWebAppDropdownData() {
       accommodations: accommodations.sort()
     };
   } catch (err) {
-    logError("getWebAppDropdownData", err.message, "");
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "getWebAppDropdownData" });
     return { success: false, sites: [], staff: [], accommodations: [] };
   }
 }
@@ -339,7 +339,7 @@ function getAdminEmailsFromSheet() {
       .filter(email => email.includes("@")); // กรองเฉพาะ email จริง
 
   } catch (err) {
-    logError("getAdminEmailsFromSheet", err.message, "");
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "getAdminEmailsFromSheet" });
     return [];
   }
 }
@@ -388,7 +388,7 @@ function getActiveEmployeesFromSheet() {
       .filter(emp => emp.firstName); // กรองแถวว่าง
 
   } catch (err) {
-    logError("getActiveEmployeesFromSheet", err.message, "");
+    logToCloud("System_WebApp", "ERROR", err.message, { function: "getActiveEmployeesFromSheet" });
     return [];
   }
 }
@@ -411,17 +411,3 @@ function getDashboardSummary() {
   }
 }
 
-// ============================================================
-// FUNCTION: logError (fallback ถ้าไม่มี logAuditTrail)
-// ============================================================
-function logError(fnName, errMsg, context) {
-  try {
-    if (typeof logAuditTrail === "function") {
-      logAuditTrail("SYSTEM", fnName, context, "", 0.0, "ERROR", errMsg);
-    } else {
-      console.error(`[${fnName}] ${errMsg} | Context: ${context}`);
-    }
-  } catch (e) {
-    console.error("logError failed: " + e.message);
-  }
-}

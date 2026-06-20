@@ -42,33 +42,7 @@ function isAdmin(userId) {
   return adminList.indexOf(userId) !== -1;
 }
 
-/**
- * 📱 2. ระบบ Dynamic Config (Remote Settings)
- * ฟังก์ชันดึงค่าตั้งค่าที่รองรับการแก้ไขผ่าน ChatOps พร้อมระบบ Cache [9, 10]
- */
-function getDynamicConfig(key, defaultValue) {
-  if (!key) return defaultValue !== undefined ? defaultValue : "";
-  try {
-    const cache = CacheService.getScriptCache();
-    const cachedValue = cache.get("CONFIG_" + key);
-    
-    // 1. ตรวจสอบใน Cache ก่อนเพื่อความรวดเร็ว
-    if (cachedValue !== null) return cachedValue;
 
-    // 2. หากไม่มีใน Cache ให้ดูใน Script Properties (ที่แก้ผ่าน ChatOps)
-    const propValue = PropertiesService.getScriptProperties().getProperty(key);
-    if (propValue !== null) {
-      cache.put("CONFIG_" + key, propValue, 3600); // เก็บเข้า Cache 1 ชม.
-      return propValue;
-    }
-  } catch (e) {
-    Logger.log("⚠️ getDynamicConfig Warning: " + e.message);
-  }
-
-  // 3. Fallback: GLOBAL_CONFIG → defaultValue → ""
-  if (GLOBAL_CONFIG[key] !== undefined && GLOBAL_CONFIG[key] !== "") return GLOBAL_CONFIG[key];
-  return defaultValue !== undefined ? defaultValue : "";
-}
 
 /**
  * ⚙️ 3. ฟังก์ชันบันทึกการตั้งค่าใหม่ (เรียกใช้โดย ChatOps ใน 1_LineBot) [11]
