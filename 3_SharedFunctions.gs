@@ -3,35 +3,8 @@
 // =================================================================
 
 // -----------------------------------------------------------------
-// 🧠 1. ระบบ AI (Gemini) และระบบ Retry
+// 🧠 1. ระบบ AI (Gemini) ย้ายไป 7_AI_Assistant.gs แล้ว
 // -----------------------------------------------------------------
-// -----------------------------------------------------------------
-// 🧠 1. ระบบ AI (Gemini) และระบบ Retry
-// -----------------------------------------------------------------
-async function callGeminiVision(base64Str, system, mimeType) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getDynamicConfig('MODEL_NAME')}:generateContent?key=${getDynamicConfig('GEMINI_API_KEY')}`;
-  const payload = { contents: [{ parts: [{ text: "Extract worker codes." }, { inlineData: { mimeType: mimeType, data: base64Str } }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: { responseMimeType: "application/json" } };
-  
-  return withExponentialBackoff(() => {
-    const options = { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true };
-    const res = UrlFetchApp.fetch(url, options);
-    if (res.getResponseCode() >= 200 && res.getResponseCode() < 300) {
-      const json = JSON.parse(res.getContentText());
-      if (json.candidates && json.candidates[0].content) {
-        let text = json.candidates[0].content.parts[0].text;
-        return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
-      }
-    }
-    throw new Error("Gemini Vision request failed");
-  });
-}
-
-async function processMessageWithAI(message) {
-  const prompt = `คุณคือระบบประมวลผลข้อมูล (API) ห้ามอธิบายใดๆ แปลงข้อความเป็น JSON โครงสร้างดังนี้: 
-  { "date": "DD/MM/YYYY", "default_site": "ชื่อไซต์", "default_Accom": "ที่พัก", "time_start": "08.00", "time_end": "17.00", "expected_count": 0, "has_ot_noon": false, "ot_noon_in": "", "ot_noon_out": "", "employees": [] } 
-  ข้อความ: "${message}"`;
-  return await callGemini(message, prompt, true);
-}
 
 // -----------------------------------------------------------------
 // 🔎 2. ระบบค้นหาชื่ออัจฉริยะ (Fuzzy Logic)
@@ -150,55 +123,7 @@ function parseComplexMessage(text) {
   } catch (e) { return null; }
 }
 
-function writeToDailySheet(data, userId, fileId) {
-  const ss = SpreadsheetApp.openById(fileId);
-  const sheetName = parseThaiDate(data.date);
-  const sheet = ss.getSheetByName(sheetName);
-  
-  if (!sheet) return { count: 0, errors: ["ไม่พบหน้าวันที่: " + sheetName] };
-  const dbData = sheet.getRange(3, 4, sheet.getLastRow(), 2).getValues();
-  
-  let successCount = 0; let errors = []; let processedNames = []; let replyAccom = "ไม่ได้ระบุ"; 
-  const fuzzyThreshold = parseFloat(getDynamicConfig("FUZZY_THRESHOLD")); // 🔮 ดึงค่า Fuzzy
 
-  data.employees.forEach(emp => {
-    let rowIndex = -1;
-    const inputName = normalize(emp.firstname);
-    
-    // 🔮 ค้นหาชื่อด้วย Fuzzy Logic ผสมแบบเก่า
-    let bestScore = 0;
-    for (let i = 0; i < dbData.length; i++) {
-      const dbName = normalize(dbData[i][0]);
-      if (!dbName) continue;
-      
-      const score = getStringSimilarity(inputName, dbName);
-      if (score === 1.0 || (score >= fuzzyThreshold && score > bestScore)) {
-          bestScore = score;
-          rowIndex = 3 + i;
-          if (score === 1.0) break; // ตรงเป๊ะออกเลย
-      }
-    }
-    
-    if (rowIndex !== -1) {
-      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_SITE).setValue(data.default_site);
-      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_WORK).setValue(emp.task);
-      
-      let empAccom = emp.accom;
-      if (!empAccom || empAccom === "-" || empAccom === "เดิม") empAccom = sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).getValue();
-      else sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).setValue(empAccom);
-      if (successCount === 0) replyAccom = empAccom || "ไม่ได้ระบุ";
-
-      const otHrs = calculateAndTimeEntry(sheet, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
-      if (otHrs > 0) { sheet.getRange(rowIndex, 9).setValue(data.default_site); sheet.getRange(rowIndex, 10).setValue(emp.task); } 
-      else { sheet.getRange(rowIndex, 9).clearContent(); sheet.getRange(rowIndex, 10).clearContent(); }
-      
-      successCount++; processedNames.push(inputName);
-    } else { errors.push(emp.firstname); }
-  });
-
-  if (userId && successCount > 0) PropertiesService.getScriptProperties().setProperty(`LAST_ENTRY_${userId}`, JSON.stringify({ date: data.date, names: processedNames }));
-  return { count: successCount, errors: errors, accom: replyAccom };
-}
 
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
   if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
