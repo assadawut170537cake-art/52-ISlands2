@@ -1,0 +1,9 @@
+**/*.js
+**/*.jsx
+node_modules/
+.git/
+.vscode/
+.agents/
+.github/
+README.md
+*.md
