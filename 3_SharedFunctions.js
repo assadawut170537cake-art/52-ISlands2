@@ -7,7 +7,7 @@
 // 🧠 1. ระบบ AI (Gemini) และระบบ Retry
 // =================================================================
 
-async function callGeminiVision(base64Str, system, mimeType) {
+function callGeminiVision(base64Str, system, mimeType) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${getDynamicConfig('MODEL_NAME')}:generateContent?key=${getDynamicConfig('GEMINI_API_KEY')}`;
   const payload = { contents: [{ parts: [{ text: "Extract worker codes." }, { inlineData: { mimeType: mimeType, data: base64Str } }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: { responseMimeType: "application/json" } };
   
@@ -25,11 +25,11 @@ async function callGeminiVision(base64Str, system, mimeType) {
   });
 }
 
-async function processMessageWithAI(message) {
+function processMessageWithAI(message) {
   const prompt = `คุณคือระบบประมวลผลข้อมูล (API) ห้ามอธิบายใดๆ แปลงข้อความเป็น JSON โครงสร้างดังนี้: 
   { "date": "DD/MM/YYYY", "default_site": "ชื่อไซต์", "default_Accom": "ที่พัก", "time_start": "08.00", "time_end": "17.00", "expected_count": 0, "has_ot_noon": false, "ot_noon_in": "", "ot_noon_out": "", "employees": [] } 
   ข้อความ: "${message}"`;
-  return await callGemini(message, prompt, true);
+  return callGemini(message, prompt, true);
 }
 
 // =================================================================
