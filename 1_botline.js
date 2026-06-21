@@ -385,8 +385,8 @@ function handleClockIn(msg, userId, token) {
 
     // 🧠 ระบบ Hybrid Fallback: ถ้า Regex อ่านไม่ออก หรือตกหล่น ให้โยนไปให้ AI ช่วยแกะ
     if (!data || !data.date || !data.default_site || isOtNoonMissed) {
-      if (typeof processMessageWithAIBot === "function") {
-        data = processMessageWithAIBot(cleanedMsg);
+      if (typeof processMessageWithAI === "function") {
+        data = processMessageWithAI(cleanedMsg);
         if (data) {
           // ดึงข้อมูลจำนวนพนักงานทั้งหมดจากข้อความ
           const countMatch = cleanedMsg.match(/ทั้งหมด\s*(\d+)\s*คน/);
@@ -403,7 +403,7 @@ function handleClockIn(msg, userId, token) {
           }
         }
       } else {
-        console.error("AI Fallback function missing: processMessageWithAIBot");
+        console.error("AI Fallback function missing: processMessageWithAI");
       }
     }
   } catch (err) {
@@ -726,7 +726,47 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
 
     // --- สร้างข้อความสรุปผลเพื่อส่งให้ผู้ใช้งาน ---
     const countValue = writeRes ? writeRes.count : 0;
-    const timeStatus = (!data.time_end || data.time_end === "") ? `(ลงเวลาเข้า: ${data.time_start})` : `(เวลา: ${data.time_start}-${data.time_end})`;
+    let timeStatus = "";
+    if (!data.time_end || data.time_end === "") {
+        timeStatus = `(ลงเวลาเข้า: ${data.time_start})`; 
+    } else {
+        const toMins = (t) => {
+            if (!t) return 0;
+            const parts = t.toString().replace('.', ':').split(':');
+            return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+        };
+        
+        const sMins = toMins(data.time_start);
+        let eMins = toMins(data.time_end);
+        if (eMins < sMins) eMins += 24 * 60; 
+        
+        let otMins = 0; let normMins = 0;
+        if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
+        
+        const nIn = Math.max(sMins, 480); const nOut = Math.min(eMins, 1020);
+        normMins = Math.max(0, nOut - nIn);
+        if (nIn <= 720 && nOut >= 780) normMins -= 60; 
+        if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
+        
+        let hasNoonOt = false; let noonOtMins = 0;
+        if (data.employees) {
+            data.employees.forEach(emp => {
+                if (emp.has_ot_noon) {
+                    hasNoonOt = true;
+                    let mIn = toMins(emp.ot_noon_in || "12.00");
+                    let mOut = toMins(emp.ot_noon_out || "13.00");
+                    noonOtMins = Math.max(noonOtMins, mOut - mIn);
+                }
+            });
+        }
+        if (hasNoonOt) otMins += noonOtMins;
+        
+        const normHr = parseFloat((normMins / 60).toFixed(2));
+        const otHr = parseFloat((otMins / 60).toFixed(2));
+        
+        let otText = otHr > 0 ? ` | OT: ${otHr} ชม.` : "";
+        timeStatus = `(เวลา: ${data.time_start}-${data.time_end} ➡️ ปกติ: ${normHr} ชม.${otText})`;
+    }
     
     let displaySite = data.default_site; 
     if (customOtSite) {
