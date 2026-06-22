@@ -372,6 +372,12 @@ async function callGeminiVision(base64Str, system, mimeType) {
   });
 }
 
+async function processMessageWithAI(message) {
+  const prompt = `คุณคือระบบประมวลผลข้อมูล (API) ห้ามอธิบายใดๆ แปลงข้อความเป็น JSON โครงสร้างดังนี้: 
+  { "date": "DD/MM/YYYY", "default_site": "ชื่อไซต์", "default_Accom": "ที่พัก", "time_start": "08.00", "time_end": "17.00", "expected_count": 0, "has_ot_noon": false, "ot_noon_in": "", "ot_noon_out": "", "employees": [] } 
+  ข้อความ: "${message}"`;
+  return await callGemini(message, prompt, true);
+}
 
 // ⚠️ [CONSOLIDATED] checkIsAdmin() ถูกลบออก — ใช้ isAdmin() จาก Config.gs แทนเป็นแหล่งเดียว
 // ป้องกันลอจิกตรวจสอบ Admin ทำงานไม่สอดคล้องกัน (ตัวนี้ใช้ ADMIN_LINE_ID แต่ตัวหลักใช้ ADMIN_LINE_IDS)

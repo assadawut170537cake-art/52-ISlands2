@@ -173,36 +173,12 @@ function callGeminiAiChat(userMessage) {
 function callGeminiTool(action, inputText, lang) {
   if (!inputText || inputText.trim() === "") return "กรุณากรอกข้อมูลก่อนครับ";
 
-  // System prompts สำหรับแต่ละเครื่องมือ
-  const TOOL_PROMPTS = {
-    estimateMaterials: `คุณคือวิศวกรประเมินวัสดุก่อสร้างมืออาชีพ
-ผู้ใช้จะอธิบายงาน ให้คุณประเมินวัสดุ เครื่องมือ และปริมาณที่ต้องใช้
-ตอบเป็นรายการชัดเจน พร้อมระบุหน่วยและหมายเหตุ`,
-
-    draftAccidentReport: `คุณคือผู้เชี่ยวชาญด้านความปลอดภัยในงานก่อสร้าง
-ผู้ใช้จะเล่าเหตุการณ์ ให้คุณร่างรายงานอุบัติเหตุแบบมาตรฐาน OSHA ประกอบด้วย:
-1. สรุปเหตุการณ์  2. สาเหตุเบื้องต้น  3. ผู้บาดเจ็บ/ความเสียหาย
-4. มาตรการแก้ไขเร่งด่วน  5. การป้องกันในอนาคต`,
-
-    draftSafetyTalk: `คุณคือผู้ฝึกอบรมความปลอดภัยหน้างานก่อสร้าง
-สร้างสคริปต์ Safety Talk สั้น (3-5 นาที) ที่เข้าใจง่าย
-ใช้ภาษาพูดทั่วไป มีตัวอย่างจริงจากหน้างาน มีการถามตอบ`,
-
-    generateWBS: `คุณคือผู้จัดการโครงการก่อสร้างมืออาชีพ
-แยกย่อยงานที่ผู้ใช้บอกออกเป็น Work Breakdown Structure (WBS)
-แสดงเป็นรายการลำดับชั้น มีกำหนดเวลาโดยประมาณและผู้รับผิดชอบ`,
-
-    translateSiteCommand: `คุณคือล่ามแปลภาษาหน้างานก่อสร้าง
-แปลข้อความที่ผู้ใช้ให้มาเป็นภาษา ${lang || 'พม่า'} (Myanmar)
-พร้อมอ่านออกเสียงภาษาไทยให้ช่างที่พูดภาษาเป้าหมายได้`,
-
-    analyzeWeatherPlan: `คุณคือที่ปรึกษาการบริหารโครงการก่อสร้างตามสภาพอากาศ
-วิเคราะห์สภาพอากาศที่ผู้ใช้แจ้ง แล้วแนะนำ:
-1. งานใดควรเร่ง/ชะลอ  2. ความเสี่ยงด้านความปลอดภัย
-3. การจัดการเครื่องจักร/วัสดุที่เหมาะสม`
-  };
-
-  const systemPrompt = TOOL_PROMPTS[action];
+  const TOOL_PROMPTS = getDynamicConfig("TOOL_PROMPTS") || GLOBAL_CONFIG.TOOL_PROMPTS;
+  let systemPrompt = TOOL_PROMPTS[action];
+  
+  if (systemPrompt && action === 'translateSiteCommand') {
+    systemPrompt = systemPrompt.replace('{LANG}', lang || 'พม่า');
+  }
   if (!systemPrompt) return `❌ ไม่รู้จักเครื่องมือ: ${action}`;
 
   try {
@@ -226,21 +202,7 @@ function callGeminiAdminTool(action, inputText) {
     return "🔒 เฉพาะ Admin เท่านั้น — " + userEmail + " ไม่มีสิทธิ์";
   }
 
-  const ADMIN_PROMPTS = {
-    summary: `คุณคือผู้ช่วยผู้จัดการโครงการก่อสร้าง
-สรุปผลลัพธ์การทำงานในช่วงเวลาที่ผู้ใช้ระบุ ประกอบด้วย:
-จำนวนชั่วโมงรวม, OT รวม, ไซต์งานหลัก, ประเด็นที่ต้องติดตาม
-เขียนเป็นรายงานสรุปผู้บริหาร (Executive Summary)`,
-
-    hr: `คุณคือผู้เชี่ยวชาญ HR ในอุตสาหกรรมก่อสร้าง
-วิเคราะห์แนวโน้มการขาด/ลา/OT ที่ผู้ใช้แจ้ง
-เสนอแนะการวางแผนกำลังคนล่วงหน้าและมาตรการที่ควรดำเนินการ`,
-
-    announce: `คุณคือผู้ช่วยสื่อสารองค์กรในบริษัทก่อสร้าง
-ร่างประกาศสั่งงานและความปลอดภัยประจำวันที่มืออาชีพ
-ภาษากระชับ ชัดเจน ครบถ้วน มีหัวข้อ Safety Moment ด้วยเสมอ`
-  };
-
+  const ADMIN_PROMPTS = getDynamicConfig("ADMIN_PROMPTS") || GLOBAL_CONFIG.ADMIN_PROMPTS;
   const systemPrompt = ADMIN_PROMPTS[action];
   if (!systemPrompt) return `❌ ไม่รู้จักเครื่องมือ Admin: ${action}`;
 

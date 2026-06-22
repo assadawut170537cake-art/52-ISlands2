@@ -7,7 +7,7 @@
 // 🧠 1. ระบบ AI (Gemini) และระบบ Retry
 // =================================================================
 
-function callGeminiVision(base64Str, system, mimeType) {
+async function callGeminiVision(base64Str, system, mimeType) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${getDynamicConfig('MODEL_NAME')}:generateContent?key=${getDynamicConfig('GEMINI_API_KEY')}`;
   const payload = { contents: [{ parts: [{ text: "Extract worker codes." }, { inlineData: { mimeType: mimeType, data: base64Str } }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: { responseMimeType: "application/json" } };
   
@@ -25,6 +25,12 @@ function callGeminiVision(base64Str, system, mimeType) {
   });
 }
 
+async function processMessageWithAI(message) {
+  const prompt = `คุณคือระบบประมวลผลข้อมูล (API) ห้ามอธิบายใดๆ แปลงข้อความเป็น JSON โครงสร้างดังนี้: 
+  { "date": "DD/MM/YYYY", "default_site": "ชื่อไซต์", "default_Accom": "ที่พัก", "time_start": "08.00", "time_end": "17.00", "expected_count": 0, "has_ot_noon": false, "ot_noon_in": "", "ot_noon_out": "", "employees": [] } 
+  ข้อความ: "${message}"`;
+  return await callGemini(message, prompt, true);
+}
 
 // =================================================================
 // 🔎 2. ระบบค้นหาชื่ออัจฉริยะ (Fuzzy Logic)
@@ -219,6 +225,80 @@ function parseComplexMessage(text) {
   }
 }
 
+function writeToDailySheet(data, userId, fileId) {
+  const ss = SpreadsheetApp.openById(fileId);
+  const sheetName = parseThaiDate(data.date);
+  const sheet = ss.getSheetByName(sheetName);
+  
+  if (!sheet) return { count: 0, errors: ["ไม่พบหน้าวันที่: " + sheetName] };
+  const dbData = sheet.getRange(3, 4, sheet.getLastRow(), 2).getValues();
+  
+  let successCount = 0; let errors = []; let processedNames = []; let replyAccom = "ไม่ได้ระบุ"; 
+  const fuzzyThreshold = parseFloat(getDynamicConfig("FUZZY_THRESHOLD")); // 🔮 ดึงค่า Fuzzy
+
+  data.employees.forEach(emp => {
+    let rowIndex = -1;
+    const inputName = normalize(emp.firstname);
+    
+    // 🔮 ค้นหาชื่อด้วย Fuzzy Logic ผสมแบบเก่า
+    let bestScore = 0;
+    for (let i = 0; i < dbData.length; i++) {
+      const dbName = normalize(dbData[i][0]);
+      if (!dbName) continue;
+      
+      const score = getStringSimilarity(inputName, dbName);
+      if (score === 1.0 || (score >= fuzzyThreshold && score > bestScore)) {
+          bestScore = score;
+          rowIndex = 3 + i;
+          if (score === 1.0) break; // ตรงเป๊ะออกเลย
+      }
+    }
+    
+    if (rowIndex !== -1) {
+      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_SITE).setValue(data.default_site);
+      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_WORK).setValue(emp.task);
+      
+      let empAccom = emp.accom;
+      if (!empAccom || empAccom === "-" || empAccom === "เดิม") empAccom = sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).getValue();
+      else sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).setValue(empAccom);
+      if (successCount === 0) replyAccom = empAccom || "ไม่ได้ระบุ";
+
+      const otHrs = calculateAndTimeEntry(sheet, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
+      if (otHrs > 0) { sheet.getRange(rowIndex, 9).setValue(data.default_site); sheet.getRange(rowIndex, 10).setValue(emp.task); } 
+      else { sheet.getRange(rowIndex, 9).clearContent(); sheet.getRange(rowIndex, 10).clearContent(); }
+      
+      successCount++; processedNames.push(inputName);
+    } else { errors.push(emp.firstname); }
+  });
+
+  if (userId && successCount > 0) PropertiesService.getScriptProperties().setProperty(`LAST_ENTRY_${userId}`, JSON.stringify({ date: data.date, names: processedNames }));
+  return { count: successCount, errors: errors, accom: replyAccom };
+}
+
+function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
+  if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
+  const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
+  const toF = (m) => { let h = Math.floor(m/60)%24; return (h<10?"0"+h:h)+"."+(m%60<10?"0"+m%60:m%60); };
+  const toHrs = (m) => parseFloat((m / 60).toFixed(2));
+
+  const s = toM(sT); let e = toM(eT); if(e===0) return 0;
+  if(e<s) e+=1440;
+  let otData = ["","","","","","",""]; let otT = 0; let normHr = "";
+
+  if(s<480) { otData[0]=toF(s); otData[1]="08.00"; otT+=(480-s); }
+  const nIn = Math.max(s, 480); const nOut = Math.min(e, 1020);  
+  let nDur = Math.max(0, nOut - nIn);
+  if(nIn<=720 && nOut>=780) nDur-=60; 
+  if(nDur>0) normHr = toHrs(nDur); 
+  
+  if(isN) { otData[2]=nI || "12.00"; otData[3]=nO || "13.00"; otT+=(toM(otData[3])-toM(otData[2])); }
+  if(e>1020) { otData[4]="17.00"; otData[5]=toF(e); otT+=(e-1020); }
+  if(otT>0) otData[6]=toHrs(otT); 
+
+  sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
+  sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
+  return toHrs(otT);
+}
 
 // -----------------------------------------------------------------
 // 🛠️ 4. Helpers จัดการวันที่, ข้อผิดพลาด, และดึงข้อมูลช่าง

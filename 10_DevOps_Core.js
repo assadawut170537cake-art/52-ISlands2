@@ -6,9 +6,9 @@
  * แก้ไขบั๊ก: แยกลอจิกสาดสีออกมาเป็นอิสระ เพื่อให้ทำงานร่วมกับระบบ Auto API Sync ได้ 100%
  */
 
-const SHEET_WORKSPACE = "Code_Workspace";
-const SHEET_SETTINGS = "System_Settings";
-const SHEET_CHANGELOG = "System_Changelog";
+const SHEET_WORKSPACE = getDynamicConfig("SHEET_WORKSPACE") || GLOBAL_CONFIG.SHEET_WORKSPACE;
+const SHEET_SETTINGS = getDynamicConfig("SHEET_SETTINGS") || GLOBAL_CONFIG.SHEET_SETTINGS;
+const SHEET_CHANGELOG = getDynamicConfig("SHEET_CHANGELOG") || GLOBAL_CONFIG.SHEET_CHANGELOG;
 
 /**
  * คลังรายชื่อไฟล์จริงทั้ง 25 ไฟล์ในโครงการ Smart Worksite
