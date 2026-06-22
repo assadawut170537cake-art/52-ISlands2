@@ -314,7 +314,7 @@ function handleLineWebhook(event) {
       return;
     }
 
-    if (/^(ลา|ขอลา|ดูยอด|ใครขาด|สรุปยอด|ประกาศ:|ลบ|สถานะระบบ)/.test(commandText)) {
+    if (/^(ลา|ขอลา|เช็ค|ดูยอด|ใครขาด|สรุปยอด|ประกาศ:|ลบ|สถานะระบบ)/.test(commandText)) {
       if (commandText === "ใครขาด" && typeof handleCheckAbsent === "function") {
         const tzTodayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy");
         emergencyReply(replyToken, handleCheckAbsent(tzTodayStr));
