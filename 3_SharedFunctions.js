@@ -275,7 +275,16 @@ function getEmployeesByCodes(codes) {
 // =================================================================
 function checkClockIn(text) { return parseComplexMessage(text); }
 function recordLeaveData(name, type, date) { return `✅ บันทึกการลาของ ${name} ประเภท ${type} วันที่ ${date} เรียบร้อยแล้ว`; }
-function handleCheckAbsent(date) { return `📊 รายงานคนขาดวันที่ ${date}:\nระบบกำลังอยู่ระหว่างการเชื่อมโยงฐานข้อมูลการลาครับ`; }
+function handleCheckAbsent(date) { 
+  if (typeof getDailyCheckInSummary !== "function") return `📊 ระบบไม่พร้อมทำงาน (Missing getDailyCheckInSummary)`;
+  const result = getDailyCheckInSummary(date);
+  if (result.error) return `❌ เกิดข้อผิดพลาด: ${result.error}`;
+  
+  if (result.absent.length === 0) return `✅ ไม่มีคนขาดงานในวันที่ ${result.dateStr} ครับ!`;
+  
+  const textList = result.absent.map(name => ` - ${name}`).join("\n");
+  return `📊 รายงานคนขาดวันที่ ${result.dateStr}:\n❌ ยังไม่เข้างาน (${result.absent.length} คน)\n${textList}`;
+}
 function processTimeEntry(e) { return true; }
 function fixAllOTInSheet() { Logger.log("ฟังก์ชันซ่อมแซม OT ถูกเรียกใช้"); }
 
