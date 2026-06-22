@@ -330,7 +330,7 @@ function handleLineWebhook(event) {
       return;
     }
 
-    if (commandText.startsWith("เช็ครายงาน")) {
+    if (commandText.startsWith("เช็ครายงาน") || commandText.startsWith("เช็ค") || commandText.startsWith("ตรวจสอบ") || commandText.startsWith("/check")) {
       handleCheckReport(commandText, userId, replyToken);
       return;
     }
@@ -1012,7 +1012,37 @@ function handleUndoFromText(text, token) {
 }
 
 function handleCheckReport(content, userId, replyToken) {
-  emergencyReply(replyToken, "ฟังก์ชันเช็ครายงานอยู่ระหว่างอัปเกรดฐานข้อมูลครับ");
+  if (typeof getDailyCheckInSummary !== "function") {
+    emergencyReply(replyToken, "ฟังก์ชันเช็ครายงานไม่พร้อมทำงาน (Missing getDailyCheckInSummary)");
+    return;
+  }
+  
+  const dateStr = typeof parseThaiDate === 'function' ? parseThaiDate(new Date()) : new Date().toLocaleDateString('th-TH');
+  const result = getDailyCheckInSummary(dateStr);
+  
+  if (result.error) {
+    emergencyReply(replyToken, `❌ เกิดข้อผิดพลาด: ${result.error}`);
+    return;
+  }
+  
+  let msg = `📊 สรุปรายงานเช็คอินวันที่ ${result.dateStr}\n`;
+  msg += `✅ เข้างานแล้ว: ${result.checkedIn.length} คน\n`;
+  
+  const maxDisplay = 30;
+  const showCheckedIn = result.checkedIn.slice(0, maxDisplay);
+  showCheckedIn.forEach(emp => {
+    msg += ` - ${emp.name} (${emp.site})\n`;
+  });
+  if (result.checkedIn.length > maxDisplay) msg += `   ...และอีก ${result.checkedIn.length - maxDisplay} คน\n`;
+  
+  msg += `\n❌ ยังไม่เข้างาน/ขาด: ${result.absent.length} คน\n`;
+  const showAbsent = result.absent.slice(0, maxDisplay);
+  showAbsent.forEach(name => {
+    msg += ` - ${name}\n`;
+  });
+  if (result.absent.length > maxDisplay) msg += `   ...และอีก ${result.absent.length - maxDisplay} คน`;
+  
+  emergencyReply(replyToken, msg.trim());
 }
 
 function handleCommands(msg, token, userId) {
