@@ -85,6 +85,21 @@ function handleWebAppGateway(payload) {
           JSON.stringify({ status: "OK", data: getDashboardSummary() })
         ).setMimeType(ContentService.MimeType.JSON);
 
+      case "GET_DAILY_CHECKIN":
+        let dateStr = data && data.date ? data.date : null;
+        if (!dateStr) {
+           dateStr = typeof parseThaiDate === 'function' ? parseThaiDate(new Date()) : new Date().toLocaleDateString('th-TH');
+        }
+        let checkInData = null;
+        if (typeof getDailyCheckInSummary === 'function') {
+           checkInData = getDailyCheckInSummary(dateStr);
+        } else {
+           checkInData = { error: "getDailyCheckInSummary is missing" };
+        }
+        return ContentService.createTextOutput(
+          JSON.stringify({ status: "OK", data: checkInData })
+        ).setMimeType(ContentService.MimeType.JSON);
+
       case "SAVE_CONFIG":
         if (!data || !data.key || !data.value) throw new Error("Missing key/value");
         setDynamicConfig(data.key, data.value);
