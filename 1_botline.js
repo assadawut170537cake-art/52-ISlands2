@@ -7,8 +7,8 @@
  */
 
 /**
- * 🚀 ฟังก์ชันหลักสำหรับรับ Webhook จาก LINE (Entry Point)
- * หน้าที่: รับข้อมูล Event จาก LINE ตรวจสอบความถูกต้อง และส่งต่อไปยังระบบประมวลผล
+ * 🚀 ฟังก์ชันหลักสำหรับรับ Webhook จาก LINE (Entry Point) [Merged & Optimized]
+ * หน้าที่: รับข้อมูล Event จาก LINE ตรวจสอบความถูกต้อง กรองสิทธิ์ และส่งต่อไปยังระบบประมวลผล
  * @param {Object} e - Event Object จาก Google Apps Script (บรรจุ HTTP POST payload)
  * @returns {Object} TextOutput ส่งกลับไปยัง LINE Server ทันทีด้วยสถานะ 200 OK
  */
@@ -43,12 +43,38 @@ function doPost(e) {
     // 🎯 ท่อที่ 1: สัญญาณส่งมาจากระบบ LINE Webhook
     if (requestData.events && requestData.events.length > 0) {
       const event = requestData.events[0];
+      const userId = event.source.userId;
+      const groupId = event.source.groupId || null;
+      
       if (event.replyToken) {
         globalReplyToken = event.replyToken;
       }
+
+      // 🛡️ [ผสานระบบ] Gatekeeper: ตรวจสอบสิทธิ์กลุ่มและแชทส่วนตัวก่อนประมวลผล
+      if (groupId) {
+        // กรณีใช้งานในไลน์กลุ่ม ตรวจสอบว่าอยู่ใน Whitelist หรือไม่
+        if (typeof isAllowedGroup === "function" && !isAllowedGroup(groupId)) {
+          if (typeof logAuditTrail === "function") {
+            logAuditTrail("SYSTEM_WARNING", "BLOCKED_GROUP", e.postData.contents, userId, 0, "WARNING", "Group ID: " + groupId);
+          }
+          return ContentService.createTextOutput(JSON.stringify({ status: "IGNORED", message: "Unauthorized group" }))
+                               .setMimeType(ContentService.MimeType.JSON);
+        }
+      } else {
+        // กรณีแชทส่วนตัว อนุญาตให้เฉพาะ Admin เท่านั้น
+        if (typeof isAdmin === "function" && !isAdmin(userId)) {
+          if (globalReplyToken && typeof emergencyReply === "function") {
+            emergencyReply(globalReplyToken, "⚠️ ขออภัยครับ ระบบ Smart Worksite อนุญาตให้ลงข้อมูลเฉพาะใน 'ไลน์กลุ่ม' ของไซต์งานที่กำหนดไว้เท่านั้นครับ");
+          }
+          return ContentService.createTextOutput(JSON.stringify({ status: "IGNORED", message: "Private chat restricted to Admin" }))
+                               .setMimeType(ContentService.MimeType.JSON);
+        }
+      }
       
       // ส่งต่อไปยังฟังก์ชันจัดการเส้นทาง (Router)
-      handleLineWebhook(event);
+      if (typeof handleLineWebhook === "function") {
+        handleLineWebhook(event);
+      }
       
       return ContentService.createTextOutput(JSON.stringify({ status: "success" }))
                            .setMimeType(ContentService.MimeType.JSON);
@@ -70,7 +96,7 @@ function doPost(e) {
     if (typeof logAuditTrail === "function") {
       logAuditTrail("SYSTEM_ERROR", "RUNTIME_EXCEPTION", e && e.postData ? e.postData.contents : "NO_CONTENT", "", 0.0, "ERROR", err.message);
     }
-    if (globalReplyToken) {
+    if (globalReplyToken && typeof emergencyReply === "function") {
       emergencyReply(globalReplyToken, "🔴 ระบบภายในขัดข้อง: " + err.message + "\n(กรุณาแจ้งแอดมินให้ตรวจสอบโค้ดจุดนี้)");
     }
     return ContentService.createTextOutput(JSON.stringify({ status: "success", error: err.message }))
