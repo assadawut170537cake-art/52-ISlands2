@@ -1158,3 +1158,61 @@ function callGeminiVision(base64Str, systemInstruction, mimeType, useWebKey = fa
   
   return fetchGemini(url, payload, true);
 }
+
+/**
+ * 🌐 Web App Gateway ขาเข้าสำหรับการวิเคราะห์ตรวจสอบ
+ */
+function handleWebAppGateway(data) {
+  if (typeof logAuditTrail === "function") {
+    logAuditTrail("WEB_APP_BOT", "WEBAPP_REQUEST", JSON.stringify(data), "RECEIVED", 1.0, "WEBAPP", "รับข้อมูลจาก Web App");
+  }
+}
+
+/**
+ * ดึงข้อมูลกลุ่มไลน์ที่ได้รับการอนุญาตใช้งาน (Whitelist)
+ */
+function getSavedGroupWhitelist() {
+  var cache = CacheService.getScriptCache();
+  var cachedWhitelist = cache.get("GROUP_WHITELIST");
+
+  if (cachedWhitelist) {
+    return JSON.parse(cachedWhitelist);
+  }
+
+  var whitelist = [];
+  var properties = PropertiesService.getScriptProperties();
+  var whitelistString = properties.getProperty("ALLOWED_GROUP_IDS");
+
+  if (whitelistString) {
+    whitelist = whitelistString.split(",").map(function (id) { return id.trim(); });
+  } else {
+    try {
+      var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("ตั้งค่า");
+      if (sheet) {
+        var data = sheet.getRange("A2:A").getValues();
+        whitelist = data.map(function (row) { return row[0].toString().trim(); })
+          .filter(function (id) { return id !== ""; });
+      }
+    } catch (e) {
+      console.error("Error reading whitelist sheet: " + e);
+    }
+  }
+
+  if (whitelist.length > 0) {
+    cache.put("GROUP_WHITELIST", JSON.stringify(whitelist), 3600);
+  }
+
+  return whitelist;
+}
+
+/**
+ * บันทึกเหตุการณ์เชิงตรวจสอบของระบบ (Audit Log ระบบ)
+ */
+function logSystemEvent(actionType, source, details) {
+  try {
+    const timestamp = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss");
+    console.log(`[${timestamp}] [AUDIT] ${actionType} | ${source} | ${details}`);
+  } catch (e) {
+    console.error("Log failed: " + e.message);
+  }
+}
