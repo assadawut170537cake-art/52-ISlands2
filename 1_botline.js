@@ -1159,14 +1159,6 @@ function callGeminiVision(base64Str, systemInstruction, mimeType, useWebKey = fa
   return fetchGemini(url, payload, true);
 }
 
-/**
- * 🌐 Web App Gateway ขาเข้าสำหรับการวิเคราะห์ตรวจสอบ
- */
-function handleWebAppGateway(data) {
-  if (typeof logAuditTrail === "function") {
-    logAuditTrail("WEB_APP_BOT", "WEBAPP_REQUEST", JSON.stringify(data), "RECEIVED", 1.0, "WEBAPP", "รับข้อมูลจาก Web App");
-  }
-}
 
 /**
  * ดึงข้อมูลกลุ่มไลน์ที่ได้รับการอนุญาตใช้งาน (Whitelist)
