@@ -83,32 +83,38 @@ function setDynamicConfig(key, value) {
   }
 }
 
+//ใส่ไว้เพื่อเช็คว่า push มาจริงๆ
+// ตัวแปรสำหรับเก็บ Cache ชั่วคราวป้องกันการเรียก Properties ซ้ำ
+let _configCache = null; 
+
 /**
- * @description ดึงค่า Configuration จาก System_Settings หรือ Script Properties พร้อมแคช
- * @param {string} key - ชื่อ Key ของ Config
- * @returns {string} ค่า Config ที่ต้องการ
+ * ดึงค่าการตั้งค่าแบบ Dynamic (Properties > Config)
+ * @param {String} key - ชื่อคีย์ที่ต้องการดึงค่า
+ * @param {String} [defaultValue] - ค่าเริ่มต้นหากไม่พบ
+ * @returns {String|null} ค่าที่ได้ หรือ null หากไม่พบ
  */
 function getDynamicConfig(key, defaultValue) {
-  if (!key) return defaultValue !== undefined ? defaultValue : "";
   try {
-    const cache = CacheService.getScriptCache();
-    let value = cache.get("CONFIG_" + key);
-    
-    if (value !== null) return value;
-    
-    value = PropertiesService.getScriptProperties().getProperty(key);
-    if (value !== null) {
-      cache.put("CONFIG_" + key, value, 3600); 
-      return value;
+    // 1. โหลด Properties มาเก็บไว้ใน Cache (ทำแค่ครั้งแรก)
+    if (!_configCache) {
+      _configCache = PropertiesService.getScriptProperties().getProperties();
     }
-  } catch (e) {
-    if (typeof Logger !== "undefined") Logger.log("⚠️ getDynamicConfig Warning: " + e.message);
-  }
 
-  if (typeof GLOBAL_CONFIG !== "undefined" && GLOBAL_CONFIG[key] !== undefined && GLOBAL_CONFIG[key] !== "") {
-    return GLOBAL_CONFIG[key];
+    // 2. เช็คจาก Properties ก่อน (ให้สิทธิ์ Properties ทับค่าโค้ด)
+    if (_configCache && _configCache[key] !== undefined && _configCache[key] !== "") {
+      return _configCache[key];
+    }
+
+    // 3. ถ้าไม่มี ให้ดึงจาก GLOBAL_CONFIG ในไฟล์ Config
+    if (typeof GLOBAL_CONFIG !== "undefined" && GLOBAL_CONFIG[key] !== undefined && GLOBAL_CONFIG[key] !== "") {
+      return GLOBAL_CONFIG[key];
+    }
+
+    return defaultValue !== undefined ? defaultValue : null;
+  } catch (err) {
+    console.error("getDynamicConfig Error for key [" + key + "]: " + err.message);
+    return defaultValue !== undefined ? defaultValue : null;
   }
-  return defaultValue !== undefined ? defaultValue : "";
 }
 
 /**

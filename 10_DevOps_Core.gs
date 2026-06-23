@@ -376,7 +376,7 @@ function repairSystemSkills() {
     
     // 2. รีเซ็ตสถานะการเชื่อมต่อ AI
     const props = PropertiesService.getScriptProperties();
-    const isBotActive = props.getProperty("SYSTEM_STATUS");
+    const isBotActive = getDynamicConfig("SYSTEM_STATUS");
     if (!isBotActive) {
       props.setProperty("SYSTEM_STATUS", "ON");
     }
@@ -401,7 +401,7 @@ function validateSystemDependencies() {
     let missing = [];
     
     requiredKeys.forEach(key => {
-      if (!props.getProperty(key)) {
+      if (!getDynamicConfig(key)) {
         isHealthy = false;
         missing.push(key);
       }

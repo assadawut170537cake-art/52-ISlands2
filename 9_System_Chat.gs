@@ -30,7 +30,7 @@ function manageReferenceWord(action, word, updatedBy) {
   
   try {
     const targetWord = word.trim();
-    const ssId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
+    const ssId = getDynamicConfig("EXTERNAL_DATABASE_ID");
     if (!ssId) return { success: false, message: "❌ ไม่พบ KEY ฐานข้อมูลกลาง (EXTERNAL_DATABASE_ID)" };
     
     const ss = SpreadsheetApp.openById(ssId);

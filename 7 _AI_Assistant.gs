@@ -92,7 +92,7 @@ function processUserChat(prompt, userId, replyToken) {
     return { success: true, text: aiRawText };
 
   } catch (err) {
-    var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
+    var dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
     if (typeof logErrorToSheet === "function") {
       logErrorToSheet(dbId, prompt, "AI_Assistant Error: " + err.message);
     }
@@ -143,20 +143,19 @@ function validateLogic(parsed) {
 }
 
 function getCurrentLogic() {
-  var scriptProperties = PropertiesService.getScriptProperties();
-  var savedLogic = scriptProperties.getProperty('DYNAMIC_SYSTEM_LOGIC');
+  var savedLogic = getDynamicConfig('DYNAMIC_SYSTEM_LOGIC');
   if (savedLogic) return JSON.parse(savedLogic);
   
   return {
     ot_rule: "standard",
-    backdate_limit: parseInt(scriptProperties.getProperty("BACKDATE_LIMIT_DAYS") || "2"),
+    backdate_limit: parseInt(getDynamicConfig("BACKDATE_LIMIT_DAYS", "2")),
     allow_overtime_noon: true
   };
 }
 
 function addLogicHistory(logicObj, updatedBy, action, note) {
   var props = PropertiesService.getScriptProperties();
-  var history = props.getProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY');
+  var history = getDynamicConfig('DYNAMIC_SYSTEM_LOGIC_HISTORY');
   history = history ? JSON.parse(history) : [];
 
   var timestamp = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
@@ -182,7 +181,7 @@ function rollbackLogic(userId, step) {
     if (!userId || adminIds.indexOf(userId) === -1) return { success: false, error: "🔒 จำกัดสิทธิ์เฉพาะ Admin เท่านั้นครับ" };
 
     var props = PropertiesService.getScriptProperties();
-    var history = props.getProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY');
+    var history = getDynamicConfig('DYNAMIC_SYSTEM_LOGIC_HISTORY');
     history = history ? JSON.parse(history) : [];
 
     if (history.length < step) return { success: false, error: "❌ ไม่พบประวัติการแก้ไขย้อนหลังในหน่วยเก็บความจำระบบ" };
@@ -249,7 +248,7 @@ function runDevOpsCliCommand(commandString) {
 function getDynamicPrompt(role) {
   const props = PropertiesService.getScriptProperties();
   const key = role === 'WEB' ? 'SYSTEM_INSTRUCTION_WEB' : 'SYSTEM_INSTRUCTION_BOT';
-  const savedPrompt = props.getProperty(key);
+  const savedPrompt = getDynamicConfig(key);
   if (savedPrompt && savedPrompt.trim() !== "") return savedPrompt;
 
   const validNames = typeof getValidNamesForAI === 'function' ? getValidNamesForAI() : "ไม่สามารถดึงรายชื่อได้";
@@ -537,7 +536,7 @@ function processMessageWithAIBot(userMessage, userId, replyToken, isAdmin, userS
         method: "post",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer " + PropertiesService.getScriptProperties().getProperty("LINE_ACCESS_TOKEN")
+          "Authorization": "Bearer " + getDynamicConfig("LINE_ACCESS_TOKEN")
         },
         payload: JSON.stringify({
           replyToken: replyToken,
@@ -560,7 +559,7 @@ function processMessageWithAIBot(userMessage, userId, replyToken, isAdmin, userS
 function processMessageWithAI(msg) {
   try {
     const props = PropertiesService.getScriptProperties();
-    const apiKey = props.getProperty("GEMINI_API_KEY_LINE");
+    const apiKey = getDynamicConfig("GEMINI_API_KEY_LINE");
     const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
 
     // เพิ่ม System Instruction ที่เข้มงวดขึ้นกว่าเดิม
@@ -593,7 +592,7 @@ function processMessageWithAI(msg) {
   } catch (e) {
     console.error("AI Fallback Error: " + e.message);
     // บันทึกลง Error_Log เพื่อให้แอดมินตามตรวจสอบ
-    const dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
+    const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
     if (typeof logErrorToSheet === "function") {
       logErrorToSheet(dbId, msg, "AI Parser Failed: " + e.message);
     }

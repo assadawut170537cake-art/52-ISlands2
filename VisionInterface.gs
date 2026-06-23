@@ -16,13 +16,13 @@ function callGeminiVision(base64Str, systemInstruction, mimeType, useWebKey = fa
     if (typeof getDynamicConfig === 'function') {
       model = getDynamicConfig('MODEL_NAME') || model;
     } else {
-      model = props.getProperty("MODEL_NAME") || model;
+      model = getDynamicConfig("MODEL_NAME", model);
     }
 
     // ลอจิกการจัดลำดับสลับสิทธิ์การใช้งาน API Key อัตโนมัติ (Fallback Key Rotation)
     let apiKey = "";
-    const keyWeb = props.getProperty("GEMINI_API_KEY_WEB");
-    const keyLine = props.getProperty("GEMINI_API_KEY_LINE");
+    const keyWeb = getDynamicConfig("GEMINI_API_KEY_WEB");
+    const keyLine = getDynamicConfig("GEMINI_API_KEY_LINE");
     const keyDefault = typeof getDynamicConfig === 'function' ? getDynamicConfig('GEMINI_API_KEY') : null;
 
     if (useWebKey) {

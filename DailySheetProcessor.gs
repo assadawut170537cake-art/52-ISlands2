@@ -52,9 +52,9 @@ function writeToDailySheet(data, userId, fileId) {
 
     // ดึงค่ามาตรฐานคอนฟิกสำหรับระบุพิกัดคอลัมน์ (Fallback โครงสร้างตัวแปรทั้งสองเวอร์ชัน)
     const colNameCheck = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_NAME_CHECK : 4;
-    const colSite = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_SITE : (typeof GLOBAL_CONFIG !== 'undefined' ? GLOBAL_CONFIG.COL_SITE : 5);
-    const colWork = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_WORK : (typeof GLOBAL_CONFIG !== 'undefined' ? GLOBAL_CONFIG.COL_WORK : 6);
-    const colAccom = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_ACCOM : (typeof GLOBAL_CONFIG !== 'undefined' ? GLOBAL_CONFIG.COL_ACCOM : 7);
+    const colSite = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_SITE : parseInt(getDynamicConfig("COL_SITE", "5"));
+    const colWork = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_WORK : parseInt(getDynamicConfig("COL_WORK", "6"));
+    const colAccom = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_ACCOM : parseInt(getDynamicConfig("COL_ACCOM", "7"));
     const colOtTotal = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_OT_TOTAL : 11;
 
     // ดึงระดับความแม่นยำในการค้นหาชื่อ (Fuzzy Threshold)

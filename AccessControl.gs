@@ -16,7 +16,7 @@ function getSavedGroupWhitelist() {
 
     let whitelist = [];
     const properties = PropertiesService.getScriptProperties();
-    const whitelistString = properties.getProperty("ALLOWED_GROUP_IDS");
+    const whitelistString = getDynamicConfig("ALLOWED_GROUP_IDS");
 
     if (whitelistString) {
       whitelist = whitelistString.split(",").map(function (id) { 

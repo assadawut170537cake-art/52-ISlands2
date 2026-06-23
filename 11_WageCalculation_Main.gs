@@ -3,9 +3,9 @@
 const WageMain = {
   runMainWageCalculation: function() {
     try {
-      const COL_EMP_NAME = getDynamicConfig("COL_EMP_NAME") || GLOBAL_CONFIG.COL_EMP_NAME;
-      const COL_EMP_ROLE = getDynamicConfig("COL_EMP_ROLE") || GLOBAL_CONFIG.COL_EMP_ROLE;
-      const COL_EMP_AGE = getDynamicConfig("COL_EMP_AGE") || GLOBAL_CONFIG.COL_EMP_AGE;
+      const COL_EMP_NAME = getDynamicConfig("COL_EMP_NAME");
+      const COL_EMP_ROLE = getDynamicConfig("COL_EMP_ROLE");
+      const COL_EMP_AGE = getDynamicConfig("COL_EMP_AGE");
       
       const currentDate = new Date();
       const currentYear = currentDate.getFullYear();

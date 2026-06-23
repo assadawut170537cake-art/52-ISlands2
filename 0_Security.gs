@@ -225,8 +225,7 @@ function verifyDataLossPrevention(userId, actionType) {
 function verifySystemAuthStatus() {
   try {
     const token = ScriptApp.getOAuthToken();
-    const props = PropertiesService.getScriptProperties();
-    const dbId = props.getProperty("EXTERNAL_DATABASE_ID");
+    const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
     
     // ตรวจสอบการเข้าถึงฐานข้อมูลหลัก
     const ss = SpreadsheetApp.openById(dbId);

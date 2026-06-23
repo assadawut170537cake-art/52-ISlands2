@@ -210,7 +210,7 @@ function parseComplexMessage(text) {
 
 
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
-  if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
+  if (!eT || eT.toString().trim() === "") { sheet.getRange(row, getDynamicConfig("COL_NORMAL_HR")).clearContent(); sheet.getRange(row, getDynamicConfig("COL_OT_M_IN"), 1, 7).clearContent(); return 0; }
   const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
   const toF = (m) => { let h = Math.floor(m/60)%24; return (h<10?"0"+h:h)+"."+(m%60<10?"0"+m%60:m%60); };
   const toHrs = (m) => parseFloat((m / 60).toFixed(2));
@@ -229,8 +229,8 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
   if(e>1020) { otData[4]="17.00"; otData[5]=toF(e); otT+=(e-1020); }
   if(otT>0) otData[6]=toHrs(otT); 
 
-  sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
-  sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
+  sheet.getRange(row, getDynamicConfig("COL_NORMAL_HR")).setValue(normHr || "");
+  sheet.getRange(row, getDynamicConfig("COL_OT_M_IN"), 1, 7).setValues([otData]);
   return toHrs(otT);
 }
 
@@ -275,8 +275,10 @@ function checkDate(s) {
  */
 function getEmployeesByCodes(codes) {
   try {
-    if (typeof GLOBAL_CONFIG === 'undefined') return [];
-    const sheet = SpreadsheetApp.openById(GLOBAL_CONFIG.EXTERNAL_DATABASE_ID).getSheetByName(GLOBAL_CONFIG.DATABASE_SHEET_NAME);
+    const extDbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
+    const dbSheetName = getDynamicConfig("DATABASE_SHEET_NAME");
+    if (!extDbId || !dbSheetName) return [];
+    const sheet = SpreadsheetApp.openById(extDbId).getSheetByName(dbSheetName);
     const data = sheet.getRange(2, 1, sheet.getLastRow(), 14).getValues();
     return data.filter(r => codes.includes(String(r[13]).trim())).map(r => ({ code: r[13], firstname: r[2], lastname: r[3] }));
   } catch (e) { 

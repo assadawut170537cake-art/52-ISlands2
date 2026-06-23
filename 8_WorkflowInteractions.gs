@@ -11,12 +11,12 @@ function generateProjectReportAndNotify() {
     const props = PropertiesService.getScriptProperties();
     
     // 1. [SHEETS] เชื่อมต่อฐานข้อมูลและดึงรายชื่อพนักงาน
-    const dbId = props.getProperty("EXTERNAL_DATABASE_ID");
+    const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
     if (!dbId) throw new Error("ไม่พบ EXTERNAL_DATABASE_ID ในระบบ");
     
     const employeeSheet = typeof getCachedSheet === 'function' 
-      ? getCachedSheet(dbId, props.getProperty("SHEET_STAFF") || "รายชื่อ") 
-      : SpreadsheetApp.openById(dbId).getSheetByName(props.getProperty("SHEET_STAFF") || "รายชื่อ");
+      ? getCachedSheet(dbId, getDynamicConfig("SHEET_STAFF", "รายชื่อ")) 
+      : SpreadsheetApp.openById(dbId).getSheetByName(getDynamicConfig("SHEET_STAFF", "รายชื่อ"));
 
     if (!employeeSheet) throw new Error("ไม่พบหน้าชีตรายชื่อพนักงาน");
 
@@ -40,7 +40,7 @@ function generateProjectReportAndNotify() {
     }
 
     // 3. [DRIVE] สร้างและจัดเก็บไฟล์รายงาน
-    const baseFolderId = props.getProperty("DRIVE_FOLDER_ID");
+    const baseFolderId = getDynamicConfig("DRIVE_FOLDER_ID");
     let targetFolder;
     
     if (baseFolderId) {
@@ -66,7 +66,7 @@ function generateProjectReportAndNotify() {
     doc.saveAndClose();
 
     // 4. [CHAT] ส่งข้อความแจ้งเตือนพร้อมลิงก์ไฟล์
-    const chatWebhookUrl = props.getProperty("GOOGLE_CHAT_WEBHOOK_URL"); 
+    const chatWebhookUrl = getDynamicConfig("GOOGLE_CHAT_WEBHOOK_URL");
     
     if (chatWebhookUrl) {
       const payload = {

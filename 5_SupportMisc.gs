@@ -24,7 +24,7 @@ function logErrorToSheet(fileId, originalMsg, errorMsg) {
 }
 
 function getSecret(key) {
-  return PropertiesService.getScriptProperties().getProperty(key) || "";
+  return getDynamicConfig(key) || "";
 }
 
 function transcribeVoice(blob) {

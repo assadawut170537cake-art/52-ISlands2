@@ -173,7 +173,7 @@ function callGeminiAiChat(userMessage) {
 function callGeminiTool(action, inputText, lang) {
   if (!inputText || inputText.trim() === "") return "กรุณากรอกข้อมูลก่อนครับ";
 
-  const TOOL_PROMPTS = getDynamicConfig("TOOL_PROMPTS") || GLOBAL_CONFIG.TOOL_PROMPTS;
+  const TOOL_PROMPTS = getDynamicConfig("TOOL_PROMPTS");
   let systemPrompt = TOOL_PROMPTS[action];
   
   if (systemPrompt && action === 'translateSiteCommand') {
@@ -202,7 +202,7 @@ function callGeminiAdminTool(action, inputText) {
     return "🔒 เฉพาะ Admin เท่านั้น — " + userEmail + " ไม่มีสิทธิ์";
   }
 
-  const ADMIN_PROMPTS = getDynamicConfig("ADMIN_PROMPTS") || GLOBAL_CONFIG.ADMIN_PROMPTS;
+  const ADMIN_PROMPTS = getDynamicConfig("ADMIN_PROMPTS");
   const systemPrompt = ADMIN_PROMPTS[action];
   if (!systemPrompt) return `❌ ไม่รู้จักเครื่องมือ Admin: ${action}`;
 

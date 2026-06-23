@@ -167,7 +167,7 @@ function handleLineWebhook(event) {
 
     const isUserAdmin = verifyAdminRole(userId);
     const props = PropertiesService.getScriptProperties();
-    const systemStatus = props.getProperty("SYSTEM_STATUS") || "ON";
+    const systemStatus = getDynamicConfig("SYSTEM_STATUS", "ON");
 
     // 📷 ประมวลผลกรณีเป็นรูปภาพ (อัปโหลดบัตรตอก)
     if (message && message.type === "image") {
@@ -514,7 +514,7 @@ function handleClockIn(msg, userId, token) {
       today.setHours(0, 0, 0, 0);
       
       const diffDays = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
-      const limit = parseInt(PropertiesService.getScriptProperties().getProperty("BACKDATE_LIMIT_DAYS") || "2", 10);
+      const limit = parseInt(getDynamicConfig("BACKDATE_LIMIT_DAYS", "2"), 10);
       
       if (diffDays > limit) {
         check = { status: "BLOCK", msg: `ห้ามส่งข้อมูลย้อนหลัง ${limit} วันขึ้นไป` };
@@ -674,7 +674,7 @@ function processPendingClockIn(answer, pendingDataStr, userId, token) {
 function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
   try {
     const props = PropertiesService.getScriptProperties();
-    const isTesting = props.getProperty("IS_TESTING") === "TRUE";
+    const isTesting = getDynamicConfig("IS_TESTING") === "TRUE";
     
     if (!data || !data.date) { 
       emergencyReply(token, "❌ ข้อมูลสูญหายระหว่างทำรายการ กรุณาส่งข้อมูลเพื่อลงเวลาใหม่อีกครั้งครับ"); 
@@ -732,7 +732,7 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
         }
 
         if (sheet) {
-          const startRowConfig = parseInt(props.getProperty("START_ROW") || "3", 10);
+          const startRowConfig = parseInt(getDynamicConfig("START_ROW", "3"), 10);
           // ดึงเฉพาะคอลัมน์ D และ E (ชื่อ-นามสกุล)
           const dbData = sheet.getRange(startRowConfig, 4, Math.max(1, sheet.getLastRow() - startRowConfig + 1), 2).getValues();
           
@@ -840,7 +840,7 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
 function emergencyReply(replyToken, msg) {
   try {
     const props = PropertiesService.getScriptProperties();
-    const token = props.getProperty("LINE_CHANNEL_ACCESS_TOKEN") || (typeof getDynamicConfig === "function" ? getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') : null);
+    const token = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
     if (!token) {
       console.error("🚨 ทรัพยากรสูญหาย: ไม่พบ LINE_CHANNEL_ACCESS_TOKEN");
       return;
@@ -877,7 +877,7 @@ function emergencyReply(replyToken, msg) {
 function replyWithButtons(replyToken, text, options) {
   try {
     const props = PropertiesService.getScriptProperties();
-    const token = props.getProperty("LINE_CHANNEL_ACCESS_TOKEN") || (typeof getDynamicConfig === "function" ? getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') : null);
+    const token = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
     if (!token) return;
     
     // เติมเครื่องหมาย # เข้าไปที่ค่า text ฝั่งส่งกลับ (ยกเว้นบางปุ่มที่มีความหมายเฉพาะ)
@@ -920,8 +920,7 @@ function replyWithButtons(replyToken, text, options) {
  */
 function handleImageProcess(messageId, replyToken, userId) {
   try {
-    const props = PropertiesService.getScriptProperties();
-    const token = props.getProperty('LINE_CHANNEL_ACCESS_TOKEN') || (typeof getDynamicConfig === "function" ? getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') : null);
+    const token = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
     
     if (!token) {
       emergencyReply(replyToken, "❌ ระบบไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN");
@@ -980,14 +979,10 @@ function handleImageProcess(messageId, replyToken, userId) {
 function verifyAdminRole(userId) {
   if (!userId) return false;
   
-  // โหลดจากตัวแปร GLOBAL_CONFIG ในหน่วยความจำก่อน (ถ้ามีการประมวลผลไว้)
-  if (typeof GLOBAL_CONFIG !== "undefined" && GLOBAL_CONFIG.ADMIN_LINE_IDS) {
-    if (GLOBAL_CONFIG.ADMIN_LINE_IDS.includes(userId)) return true;
-  }
+  const cachedAdmins = getDynamicConfig("ADMIN_LINE_IDS") || "";
+  if (cachedAdmins.includes(userId)) return true;
 
-  const props = PropertiesService.getScriptProperties();
-  // รองรับชื่อ Key ทั้งสองแบบ เผื่อมีการเปลี่ยนแปลงในอนาคต (ADMIN_LINE_IDS หรือ ADMIN_ID_LIST)
-  const adminIdsString = props.getProperty("ADMIN_LINE_IDS") || props.getProperty("ADMIN_ID_LIST") || "";
+  const adminIdsString = getDynamicConfig("ADMIN_LINE_IDS") || getDynamicConfig("ADMIN_ID_LIST") || "";
   const adminIds = adminIdsString.split(",").map(s => s.trim()).filter(Boolean);
   return adminIds.includes(userId);
 }
@@ -998,7 +993,7 @@ function verifyAdminRole(userId) {
 
 function handleUndoLastAction(userId, token) {
   const props = PropertiesService.getScriptProperties();
-  const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+  const lastJson = getDynamicConfig(`LAST_ENTRY_${userId}`);
   if (!lastJson) {
     emergencyReply(token, "⚠️ ไม่พบรายการล่าสุดที่คุณทำการบันทึก");
     return;
@@ -1088,7 +1083,7 @@ function handleCommands(msg, token, userId) {
       }
       break;
     case "SYSTEM_STATUS":
-      const status = typeof getDynamicConfig === "function" ? getDynamicConfig("SYSTEM_STATUS") : PropertiesService.getScriptProperties().getProperty("SYSTEM_STATUS");
+      const status = getDynamicConfig("SYSTEM_STATUS");
       emergencyReply(token, `⚙️ Status ระบบการจัดการปัจจุบัน: ${status || "ON"}`);
       break;
     default:
@@ -1196,12 +1191,11 @@ function fetchGemini(url, payload, isJson) {
 }
 
 function callGemini(content, systemInstruction, isJson, useWebKey = false) {
-  const props = PropertiesService.getScriptProperties();
-  const model = props.getProperty("MODEL_NAME") || "gemini-2.5-flash"; // หรือ gemini-1.5-flash
+  const model = getDynamicConfig("MODEL_NAME", "gemini-2.5-flash"); // หรือ gemini-1.5-flash
   
   const apiKey = useWebKey 
-    ? (props.getProperty("GEMINI_API_KEY_WEB") || props.getProperty("GEMINI_API_KEY_LINE"))
-    : (props.getProperty("GEMINI_API_KEY_LINE") || props.getProperty("GEMINI_API_KEY_WEB"));
+    ? (getDynamicConfig("GEMINI_API_KEY_WEB") || getDynamicConfig("GEMINI_API_KEY_LINE"))
+    : (getDynamicConfig("GEMINI_API_KEY_LINE") || getDynamicConfig("GEMINI_API_KEY_WEB"));
 
   if (!apiKey) {
     console.error("GEMINI_API_KEY not set");
