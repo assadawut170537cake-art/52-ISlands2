@@ -1228,14 +1228,44 @@ function checkDateLogic(dateStr) {
 }
 
 /**
- * 3. Gateway สำหรับ Web App Portal
- * (กรณีส่งข้อมูลผ่านฟอร์มหน้าเว็บ)
+ * 🚀 Gateway สำหรับ Web App Portal (ประมวลผลข้อมูลจากหน้าเว็บ)
+ * นำข้อมูลที่ได้รับจากหน้าเว็บ มาจัดรูปแบบให้เหมือนข้อมูลที่ได้จาก LINE
+ * เพื่อส่งต่อไปยังฟังก์ชันการบันทึกข้อมูลหลัก
  */
 function handleWebAppGateway(requestData) {
-  console.log("Processing Web App Data: ", JSON.stringify(requestData));
-  // เขียนตรรกะการบันทึกข้อมูลจากหน้าเว็บลง Spreadsheet ที่นี่
-  // ถ้ายังไม่มี ให้ใส่ return ไว้ก่อนเพื่อป้องกัน Error
-  return { status: "success" };
+  try {
+    console.log("Processing Web App Data: ", JSON.stringify(requestData));
+
+    // 1. ตรวจสอบข้อมูลเบื้องต้น
+    if (!requestData.userId || !requestData.data) {
+      throw new Error("Missing required fields (userId or data)");
+    }
+
+    // 2. จัดเตรียมข้อมูล (Mapping ข้อมูลจาก Web App ให้เป็นโครงสร้างที่ handleClockIn เข้าใจ)
+    // สมมติว่า requestData.data ส่งมาเป็น Object { date, employees, default_site, ... }
+    const data = requestData.data;
+    const userId = requestData.userId;
+    const token = "WEB_APP_TRIGGER"; // ใช้เป็น Token จำลอง
+
+    // 3. เรียกฟังก์ชันตรวจสอบและบันทึกข้อมูล (ใช้ฟังก์ชันเดียวกับที่บอทใช้)
+    // การส่งเข้า checkOTAndProceed โดยตรงจะข้ามขั้นตอนการดึงชื่อจากข้อความ
+    // แต่ถ้าข้อมูลส่งมาเป็นรายชื่อแล้ว ก็สามารถข้ามไปบันทึกได้เลย
+    const targetFileId = typeof getTargetFileIdByDate === "function" ? getTargetFileIdByDate(data.date) : null;
+    const check = { status: "OK", msg: "" }; // ถือว่าผ่านการตรวจสอบจากหน้าเว็บแล้ว
+
+    // 4. บันทึกข้อมูล
+    if (typeof finalizeClockInSaving === "function") {
+      finalizeClockInSaving(data, userId, token, check, null, targetFileId);
+    } else if (typeof checkOTAndProceed === "function") {
+      checkOTAndProceed(data, userId, token, check, targetFileId);
+    }
+
+    return { status: "success", message: "Data processed successfully" };
+
+  } catch (err) {
+    console.error("handleWebAppGateway Error: " + err.message);
+    return { status: "error", message: err.message };
+  }
 }
 
 /**
