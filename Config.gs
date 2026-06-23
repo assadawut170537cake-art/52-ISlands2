@@ -6,7 +6,7 @@
  * ⚠️ แก้ไขจาก const เป็น var เพื่อให้ไฟล์อื่นในโปรเจกต์สามารถเรียกใช้งานได้ (Global Scope)
  */
 var GLOBAL_CONFIG = {
-  "LINE_CHANNEL_ACCESS_TOKEN": "J1cwkhLak/aF8mvFHC0QlXWZwauCa8TYj5yF9QXeGgaIalwoS8utPerxw9f19h3lyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDXKwBSaeDDDToERWfnELA8IA2kKIwg9N+jyAro5S/NU3QdB04t89/1O/w1cDnyilFU=",  // ⚠️ ดึงจาก Script Properties เท่านั้น (ห้ามฝังค่าจริงใน source code)
+  "LINE_CHANNEL_ACCESS_TOKEN": "Ob2i9KKspAAZQMNv1Hwe0w+u/ipyv/0P7xGfcYekxGLj8s3pLtK0/Vf5pZ5CdYW9yUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDXIqtEvoG3KQ0ox94QlKEMGQAz6UBjkT56UF7ZbUUnBFAdB04t89/1O/w1cDnyilFU=",  // ⚠️ ดึงจาก Script Properties เท่านั้น (ห้ามฝังค่าจริงใน source code)
   "GEMINI_API_KEY_LINE": "",        // ⚠️ ดึงจาก Script Properties เท่านั้น
   "GEMINI_API_KEY_WEB": "",         // ⚠️ ดึงจาก Script Properties เท่านั้น
   "MODEL_NAME": "gemini-2.5-flash",
@@ -38,6 +38,7 @@ var GLOBAL_CONFIG = {
   "COL_EMP_NAME": 4,
   "COL_EMP_ROLE": 5,
   "COL_EMP_AGE": 24,
+  TEST_KEY: "นี่คือค่าจาก GLOBAL_CONFIG",
   "TOOL_PROMPTS": {
     "estimateMaterials": "คุณคือวิศวกรประเมินวัสดุก่อสร้างมืออาชีพ\nผู้ใช้จะอธิบายงาน ให้คุณประเมินวัสดุ เครื่องมือ และปริมาณที่ต้องใช้\nตอบเป็นรายการชัดเจน พร้อมระบุหน่วยและหมายเหตุ",
     "draftAccidentReport": "คุณคือผู้เชี่ยวชาญด้านความปลอดภัยในงานก่อสร้าง\nผู้ใช้จะเล่าเหตุการณ์ ให้คุณร่างรายงานอุบัติเหตุแบบมาตรฐาน OSHA ประกอบด้วย:\n1. สรุปเหตุการณ์  2. สาเหตุเบื้องต้น  3. ผู้บาดเจ็บ/ความเสียหาย\n4. มาตรการแก้ไขเร่งด่วน  5. การป้องกันในอนาคต",
@@ -216,4 +217,9 @@ function forceCleanAdminIds() {
   } catch (e) {
     Logger.log("⚠️ forceCleanAdminIds Sheet Sync skipped: " + e.message);
   }
+}
+
+function runConfigTest() {
+  var result = getDynamicConfig("TEST_KEY");
+  console.log("ผลการดึงค่า TEST_KEY คือ: " + result);
 }

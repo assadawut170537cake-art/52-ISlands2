@@ -6,51 +6,13 @@
  * =================================================================
  */
 
-function doPost(e) {
-  // 🛡️ 1. ดักสัญญาณ Webhook Verification จาก LINE
-  if (e && e.postData && e.postData.contents) {
-    try {
-      const preCheckData = JSON.parse(e.postData.contents);
-      if (preCheckData.events && (preCheckData.events.length === 0 || (preCheckData.events[0] && preCheckData.events[0].replyToken === "00000000000000000000000000000000"))) {
-        return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
-      }
-    } catch (parseErr) { }
-  }
-
-  // ⚠️ 2. ปิด LockService ถาวร เพื่อทดสอบหาจุดคอขวด
-  let globalReplyToken = null;
-
-  try {
-    if (!e || !e.postData || !e.postData.contents) {
-      return ContentService.createTextOutput(JSON.stringify({ status: "ERROR" })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    const requestData = JSON.parse(e.postData.contents);
-
-    if (requestData.events && requestData.events.length > 0) {
-      const event = requestData.events[0];
-      globalReplyToken = event.replyToken;
-
-      // ส่งเข้าฟังก์ชันจัดการหลักทันที
-      if (typeof handleLineWebhook === "function") {
-        handleLineWebhook(event);
-      }
-    }
-  } catch (err) {
-    if (globalReplyToken && typeof emergencyReply === "function") {
-      emergencyReply(globalReplyToken, "🔴 ระบบภายในขัดข้อง: " + err.message);
-    }
-  } 
-
-  return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
-}
 
 /**
  * 🚀 ฟังก์ชันหลักสำหรับรับ Webhook จาก LINE (Entry Point) [V12 Master Optimized]
  * หน้าที่: รับและคัดกรองข้อมูลเบื้องต้น ป้องกันข้อมูลชนกัน และส่งต่อให้ Router หลักอย่างลื่นไหล
  * @param {Object} e - Event Object จาก Google Apps Script (บรรจุ HTTP POST payload)
  * @returns {Object} TextOutput ส่งกลับไปยัง LINE Server ทันทีด้วยสถานะ 200 OK
- 
+ */
 function doPost(e) {
   // 🛡️ 1. ดักสัญญาณ Webhook Verification จาก LINE
   if (e && e.postData && e.postData.contents) {
@@ -122,7 +84,7 @@ function doPost(e) {
       console.error("Lock Release Error:", e.message);
     }
   }
-}*/
+}
 
 /**
  * 🛠️ ฟังก์ชันจัดการ LINE Webhook พร้อมระบบ Cache State Machine
@@ -1225,4 +1187,61 @@ function logSystemEvent(actionType, source, details) {
   } catch (e) {
     console.error("Log failed: " + e.message);
   }
+}
+
+/**
+ * 1. ล้างข้อมูลข้อความ (ทำความสะอาดอักขระพิเศษ)
+ */
+function cleanText(text) {
+  if (!text) return "";
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * 2. ตรวจสอบเงื่อนไขวันย้อนหลัง
+ * คืนค่า status เป็น "OK", "WARNING", หรือ "BLOCK"
+ */
+function checkDateLogic(dateStr) {
+  const parts = dateStr.split(/[\/\-.]/);
+  if (parts.length < 3) return { status: "OK", msg: "" };
+
+  let day = parseInt(parts[0], 10);
+  let month = parseInt(parts[1], 10) - 1;
+  let year = parseInt(parts[2], 10);
+  year = year < 100 ? 2000 + year : (year > 2400 ? year - 543 : year);
+
+  const entryDate = new Date(year, month, day);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const diffTime = today.getTime() - entryDate.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  const limit = parseInt(getDynamicConfig("BACKDATE_LIMIT_DAYS", "2"), 10);
+  
+  if (diffDays > limit) {
+    return { status: "BLOCK", msg: `ห้ามส่งข้อมูลย้อนหลังเกิน ${limit} วัน` };
+  } else if (diffDays > 0) {
+    return { status: "WARNING", msg: `ส่งข้อมูลย้อนหลัง ${diffDays} วัน` };
+  }
+  return { status: "OK", msg: "" };
+}
+
+/**
+ * 3. Gateway สำหรับ Web App Portal
+ * (กรณีส่งข้อมูลผ่านฟอร์มหน้าเว็บ)
+ */
+function handleWebAppGateway(requestData) {
+  console.log("Processing Web App Data: ", JSON.stringify(requestData));
+  // เขียนตรรกะการบันทึกข้อมูลจากหน้าเว็บลง Spreadsheet ที่นี่
+  // ถ้ายังไม่มี ให้ใส่ return ไว้ก่อนเพื่อป้องกัน Error
+  return { status: "success" };
+}
+
+/**
+ * 4. Helper สำหรับ Verify Admin (ถ้ายังไม่มี)
+ */
+function verifyAdminRole(userId) {
+  const adminIds = getDynamicConfig("ADMIN_LINE_ID", "");
+  return adminIds.split(",").includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
 }
