@@ -1,1 +1,0 @@
-const babel = require('@babel/core'); try { const res = babel.transformFileSync('temp.jsx', { presets: ['@babel/preset-react'] }); require('fs').writeFileSync('compiled.js', res.code); console.log('Syntax OK'); } catch (e) { console.error(e.message); }

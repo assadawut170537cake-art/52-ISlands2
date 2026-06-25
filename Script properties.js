@@ -6,7 +6,7 @@ function INITIAL_SETUP_PROPERTIES() {
   
   const myConfig = {
     // 🟢 [1] ระบบ LINE Bot
-    "LINE_CHANNEL_ACCESS_TOKEN": "Vfk8m9cWkFJF10pDtp7jj8x4yn6ty8LybZBr1rGON44pCGb3G8s/RLYdpIQKNUdDyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDWn9pPOTyKMna0QWDIZgJPtYkrn4mk3biVCbCEW9x9A0QdB04t89/1O/w1cDnyilFU=",
+    "LINE_CHANNEL_ACCESS_TOKEN": "CIYDprd0GTlbxLQ2L48wTMbbWuOIKwnKD4Mv1wSt+tQJWtCLfPA2nj1RRT26LrvdyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDX1IGkLZEVbpjswfsfE0QhypxbzP6b11R5GvQezVMc4EQdB04t89/1O/w1cDnyilFU=",
     "GEMINI_API_KEY_LINE": "AIzaSyDnOFKdSpstDLXg6NQbxA7-mG6lMbR1-w4", // คีย์ตัวที่ 1 (ใช้ในไลน์บอท)
     "ADMIN_LINE_IDS": "Uc0c4b4e9e5159a37b38fa5ac9c619c1e,U19fc3f88a0ae90bfb047e362b60e2493",
 
