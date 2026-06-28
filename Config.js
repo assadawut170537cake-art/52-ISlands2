@@ -48,6 +48,13 @@ function isAdmin(userId) {
  */
 function getDynamicConfig(key, defaultValue) {
   if (!key) return defaultValue !== undefined ? defaultValue : "";
+  
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const val = props.getProperty(key);
+    if (val !== null && val !== "") return val;
+  } catch(e) {}
+
   if (GLOBAL_CONFIG[key] !== undefined && GLOBAL_CONFIG[key] !== "") return GLOBAL_CONFIG[key];
   
   // Fallback for ADMIN_LINE_ID vs ADMIN_LINE_IDS typo in other scripts

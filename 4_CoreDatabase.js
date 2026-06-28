@@ -19,8 +19,7 @@ var CORE_DB = {
 };
 
 function writeToDailySheetBatch(data, userId, fileId) {
-  try {
-    if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
+  if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
   const ss = SpreadsheetApp.openById(fileId);
   const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
   
@@ -56,11 +55,16 @@ function writeToDailySheetBatch(data, userId, fileId) {
     let rowIndex = -1;
     
     // 🔒 ปิดระบบ Fuzzy และ Includes: บังคับให้ชื่อต้องตรงกันเป๊ะๆ (Exact Match) 100% เท่านั้น
+    // แต่เพื่อรองรับกรณีที่ชีตลงเวลาใช้แค่ "ชื่อจริง" หรือ "ชื่อ-สกุล" จึงเช็คทั้ง 2 แบบ
+    const firstNameOnly = typeof normalize === 'function' ? normalize(String(emp.firstname).trim().split(/\s+/).filter(w => !w.match(/^(นาย|นาง|น\.?ส\.?|ด\.?ช\.?|ด\.?ญ\.?)$/))[0] || String(emp.firstname).trim().split(/\s+/)[0]) : String(emp.firstname).trim().split(/\s+/)[0];
+    
     for (let i = 0; i < block.length; i++) {
-      const rowName = typeof normalize === 'function' ? normalize(block[i][CORE_DB.COL_NAME_CHECK - 1]) : block[i][CORE_DB.COL_NAME_CHECK - 1]; 
-      // แก้ไขลบ .includes() ออก และใช้ === ตรวจสอบแบบตายตัว
-      if (rowName !== "" && rowName === inputName) {
-        rowIndex = i; break;
+      let raw = block[i][CORE_DB.COL_NAME_CHECK - 1];
+      if (raw && raw.toString().trim() !== "") {
+        const rowName = typeof normalize === 'function' ? normalize(raw) : raw; 
+        if (rowName === inputName || rowName === firstNameOnly) {
+          rowIndex = i; break;
+        }
       }
     }
 
@@ -84,16 +88,23 @@ function writeToDailySheetBatch(data, userId, fileId) {
       }
       successCount++;
     } else {
-      errors.push(emp.firstname);
+      let debugStr = "in:'" + inputName + "', db:";
+      let count = 0;
+      for(let k=0; k<block.length; k++) {
+         let raw = block[k][CORE_DB.COL_NAME_CHECK - 1];
+         if (raw && raw.toString().trim() !== "") {
+           let rName = typeof normalize === 'function' ? normalize(raw) : raw;
+           debugStr += "'" + rName + "',";
+           count++;
+           if(count >= 3) break;
+         }
+      }
+      errors.push(emp.firstname + " (" + debugStr + ")");
     }
   });
 
-    blockRange.setValues(block);
-    return { count: successCount, errors: errors };
-  } catch (err) {
-    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "writeToDailySheetBatch", err.message);
-    return { count: 0, errors: ["เกิดข้อผิดพลาดภายในระบบ: " + err.message] };
-  }
+  blockRange.setValues(block);
+  return { count: successCount, errors: errors };
 }
 
 /**
