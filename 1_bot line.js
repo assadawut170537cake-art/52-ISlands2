@@ -224,6 +224,29 @@ function doPost(e) {
               }
               return ContentService.createTextOutput("OK");
             }
+            if (commandText === "ถ่ายรูปโค้ด" || commandText === "snapshot") {
+              if (typeof createCodeSnapshot === "function") {
+                const snapRes = createCodeSnapshot();
+                if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_SNAPSHOT", commandText, "CREATE_SNAPSHOT", 1.0, "SNAPSHOT", "แอดมินสั่งสร้าง Code Snapshot");
+                if (typeof reply === "function") reply(globalReplyToken, snapRes.success ? snapRes.message : snapRes.error);
+              } else {
+                if (typeof reply === "function") reply(globalReplyToken, "❌ ไม่พบระบบสร้าง Code Snapshot");
+              }
+              return ContentService.createTextOutput("OK");
+            }
+            if (commandText.startsWith("กู้คืนโค้ด") || commandText.startsWith("rollback-code")) {
+              let step = 1;
+              const parts = commandText.split(" ");
+              if (parts.length > 1 && !isNaN(parseInt(parts[1]))) step = parseInt(parts[1]);
+              if (typeof rollbackCodeSnapshot === "function") {
+                const rollbackRes = rollbackCodeSnapshot(step);
+                if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_CODE_ROLLBACK", commandText, "STEP_" + step, 1.0, "CODE_ROLLBACK", "แอดมินสั่งกู้คืนโค้ด");
+                if (typeof reply === "function") reply(globalReplyToken, rollbackRes.success ? rollbackRes.message + "\n\n⚠️ แอดมินต้องไปกด Manage Deployments เพื่อสร้าง New Version ด้วยนะครับ (เนื่องจาก Webhook ไม่ทำงานกับ HEAD)" : rollbackRes.error);
+              } else {
+                if (typeof reply === "function") reply(globalReplyToken, "❌ ไม่พบระบบจัดการกู้คืนโค้ด (rollbackCodeSnapshot)");
+              }
+              return ContentService.createTextOutput("OK");
+            }
             if (commandText === "เปิดระบบ") {
               if (typeof setDynamicConfig === "function") setDynamicConfig("SYSTEM_STATUS", "ON");
               if (typeof logAuditTrail === "function") logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "ON", 1.0, "SYSTEM_ON", "เปิดระบบทำงาน");

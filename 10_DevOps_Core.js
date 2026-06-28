@@ -376,3 +376,100 @@ function showDevOpsInjectorSidebar() {
       .setWidth(300);
   SpreadsheetApp.getUi().showSidebar(html);
 }
+
+// =================================================================
+// 📸 ระบบ Code Checkpoints & Rollback Snapshots (Max 5)
+// =================================================================
+
+function getSnapshotFolder() {
+  const parentFolderId = typeof getDynamicConfig === 'function' ? getDynamicConfig("DRIVE_FOLDER_ID") : "1PTdHuQErX_ZxJPypS-xb4Gw3vcmuOvtJ";
+  const parent = DriveApp.getFolderById(parentFolderId);
+  const folders = parent.getFoldersByName("System_Snapshots");
+  if (folders.hasNext()) return folders.next();
+  return parent.createFolder("System_Snapshots");
+}
+
+function createCodeSnapshot() {
+  try {
+    const scriptId = ScriptApp.getScriptId();
+    const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
+    const options = { method: "get", headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true };
+    const response = UrlFetchApp.fetch(url, options);
+    
+    if (response.getResponseCode() !== 200) {
+      throw new Error("API Error: " + response.getContentText());
+    }
+
+    const folder = getSnapshotFolder();
+    const timestamp = Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd_HHmmss");
+    const fileName = "snapshot_" + timestamp + ".json";
+    
+    // Create new snapshot
+    folder.createFile(fileName, response.getContentText(), MimeType.PLAIN_TEXT);
+    
+    // Manage max 5 files
+    const filesIter = folder.getFilesByType(MimeType.PLAIN_TEXT);
+    const files = [];
+    while (filesIter.hasNext()) {
+      files.push(filesIter.next());
+    }
+    
+    // Sort ascending by date (oldest first)
+    files.sort((a, b) => a.getDateCreated().getTime() - b.getDateCreated().getTime());
+    
+    // If more than 5, delete the oldest
+    while (files.length > 5) {
+      const oldest = files.shift();
+      oldest.setTrashed(true);
+    }
+    
+    return { success: true, message: `📸 ถ่ายรูปโค้ดและสร้าง Snapshot สำเร็จ! (ไฟล์: ${fileName})` };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function rollbackCodeSnapshot(step) {
+  try {
+    const folder = getSnapshotFolder();
+    const filesIter = folder.getFilesByType(MimeType.PLAIN_TEXT);
+    const files = [];
+    while (filesIter.hasNext()) {
+      files.push(filesIter.next());
+    }
+    
+    if (files.length === 0) return { success: false, error: "❌ ไม่พบไฟล์ Snapshot ในระบบเลยครับ" };
+    
+    // Sort descending (newest first)
+    files.sort((a, b) => b.getDateCreated().getTime() - a.getDateCreated().getTime());
+    
+    if (step < 1 || step > files.length) {
+      return { success: false, error: `❌ ระบุลำดับไม่ถูกต้อง (มีไฟล์สำรองทั้งหมด ${files.length} ไฟล์)` };
+    }
+    
+    const targetFile = files[step - 1];
+    const fileContent = targetFile.getBlob().getDataAsString();
+    const payload = JSON.parse(fileContent);
+    
+    const scriptId = ScriptApp.getScriptId();
+    const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
+    const options = { 
+      method: "put", 
+      headers: { 
+        Authorization: "Bearer " + ScriptApp.getOAuthToken(),
+        "Content-Type": "application/json"
+      }, 
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true 
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() !== 200) {
+      throw new Error("Update API Error: " + response.getContentText());
+    }
+    
+    return { success: true, message: `↩️ กู้คืนโค้ดกลับไปยัง Snapshot ที่ ${step} (${targetFile.getName()}) เรียบร้อยแล้วครับ!` };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
