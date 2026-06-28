@@ -1,0 +1,10 @@
+**/*.md
+**/*.txt
+**/*.json
+!appsscript.json
+!.clasp.json
+update_review.js
+.agents/**
+.antigravity/**
+.git/**
+.github/**

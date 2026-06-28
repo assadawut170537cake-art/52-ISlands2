@@ -26,7 +26,7 @@ function replyWithButtons(tk, t, b) {
 
     const items = b.map(l => ({ 
       "type": "action", 
-      "action": { "type": "message", "label": l, "text": l } 
+      "action": { "type": "postback", "label": l, "data": "#" + l } 
     }));
 
     const payload = { 
@@ -73,7 +73,7 @@ function doPost(e) {
       return ContentService.createTextOutput("OK");
     }
 
-    if (event.type === "message") {
+    if (event.type === "message" || event.type === "postback") {
       const lock = LockService.getScriptLock();
       let globalReplyToken = event.replyToken;
       
@@ -87,8 +87,18 @@ function doPost(e) {
         const status = typeof getDynamicConfig === "function" ? getDynamicConfig("SYSTEM_STATUS") : "ON";
         const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
 
-        if (event.message.type === "text") {
-          const msg = event.message.text.trim();
+        let msg = "";
+        let isTextMsg = false;
+        
+        if (event.type === "postback") {
+           msg = event.postback.data.trim();
+           isTextMsg = true;
+        } else if (event.message && event.message.type === "text") {
+           msg = event.message.text.trim();
+           isTextMsg = true;
+        }
+
+        if (isTextMsg) {
           
           // 🛡️ ป้องกันช่างส่งงานทางแชทส่วนตัว (อนุญาตเฉพาะ Admin)
           if (source.type === "user" && !isUserAdmin) {
@@ -101,6 +111,16 @@ function doPost(e) {
           let pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
           let pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
           let pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+
+          // 🛡️ Strict Text Filtering (Silent Ignore)
+          const isPostback = event.type === "postback";
+          const hasHash = msg.startsWith("#");
+          const hasPendingState = !!(pendingClockIn12 || pendingOTConfirm || pendingOTDetails);
+          
+          if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin) {
+            // เงียบ (Silent Ignore) หากข้อความไม่เข้าเงื่อนไข
+            return ContentService.createTextOutput("OK");
+          }
 
           if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
             cache.remove(`PENDING_CLOCKIN_${userId}`);
@@ -502,8 +522,18 @@ async function handleImageProcess(mId, tk, uId) {
       headers: { Authorization: "Bearer " + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') }
     }).getBlob();
 
-    let aiRes = await callGeminiVision(Utilities.base64Encode(blob.getBytes()), `JSON: { "codes": ["52011"] }`, "image/jpeg");
-    if (!aiRes || !aiRes.codes) {
+    const prompt = `SYSTEM: You are a strict Image verifier. Is this image a timesheet (bille/slip) or a human face?
+Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52011", ...], "reason": "string" }`;
+
+    let aiRes = await callGeminiVision(Utilities.base64Encode(blob.getBytes()), prompt, "image/jpeg");
+    if (!aiRes) return;
+    
+    if (aiRes.is_target === false || aiRes.confidence < 80) {
+      if (typeof logAuditTrail === "function") logAuditTrail(uId, "IMAGE_REJECT", "รูปภาพไม่ตรงเงื่อนไข", JSON.stringify(aiRes), 1.0, "REJECT", "Low confidence or not target");
+      return; // Silent Ignore
+    }
+
+    if (!aiRes.codes || aiRes.codes.length === 0) {
       reply(tk, "❌ AI มองไม่เห็นรหัส");
       return;
     }

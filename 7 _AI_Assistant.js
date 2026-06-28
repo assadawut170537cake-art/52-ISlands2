@@ -206,35 +206,7 @@ function rollbackLogic(userId, step) {
 // 3. ระบบการสร้าง Audit Trail และเครื่องมือ DevOps
 // ==========================================
 
-function logAuditTrail(userId, actionType, inputRaw, machineStructured, confidence, userAction, executionMessage) {
-  try {
-    var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
-    if (!dbId) return;
-    
-    // ดึง Spreadsheet จาก Cache ถ้ามี หรือเปิดใหม่
-    var ss = typeof getCachedSpreadsheet === 'function' ? getCachedSpreadsheet(dbId) : SpreadsheetApp.openById(dbId);
-    var sheet = ss.getSheetByName("Audit_Log") || ss.insertSheet("Audit_Log");
-    
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(["วัน-เวลา", "LINE User ID", "ประเภทเหตุการณ์", "ข้อความอินพุตดิบ", "โครงสร้างข้อมูลระดับเครื่อง", "คะแนนความมั่นใจ", "การดำเนินการของยูสเซอร์", "บันทึกข้อความจากเซิร์ฟเวอร์"]);
-      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#cfe2ff").setHorizontalAlignment("center");
-      sheet.setFrozenRows(1);
-    }
-    
-    sheet.appendRow([
-      Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss"),
-      userId || "SYSTEM",
-      actionType,
-      inputRaw || "",
-      machineStructured || "",
-      confidence || 1.0,
-      userAction || "",
-      executionMessage || ""
-    ]);
-  } catch (err) {
-    console.error("Critical Failure in Log Audit Trail Pipeline: " + err.message);
-  }
-}
+
 
 function runDevOpsCliCommand(commandString) {
   var args = commandString.trim().split(" ");
@@ -300,6 +272,7 @@ function getDynamicPrompt(role) {
 
 [Output Control]
 - หากข้อความหรือรูปภาพใดๆ ไม่ผ่านเงื่อนไขข้อยกเว้นข้างต้น ห้ามส่งข้อความตอบกลับ ห้ามแสดง Error และห้ามพิมพ์สิ่งใดตอบกลับไปในแชทเด็ดขาด
+- หากต้องมีการบันทึกข้อมูล ให้ส่งกลับเฉพาะโครงสร้าง JSON ที่กำหนดไว้เท่านั้น ห้ามอธิบายข้อความเพิ่ม (No Markdown, No conversational text)
 
 รายชื่อพนักงานในระบบปัจจุบัน: ${validNames}
 ตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}`;
