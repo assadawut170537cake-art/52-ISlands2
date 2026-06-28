@@ -113,11 +113,6 @@ function handleLineWebhook(requestData, e) {
   
   var source = event.source;
   var groupId = source.groupId;
-  
-  // ตรวจสอบสิทธิ์ Group ID
-  if (source.type === "group" && typeof isAllowedGroup === "function" && !isAllowedGroup(groupId)) {
-    return ContentService.createTextOutput("OK");
-  }
 
   if (event.type === "message" || event.type === "postback") {
     let globalReplyToken = event.replyToken;
@@ -141,6 +136,31 @@ function handleLineWebhook(requestData, e) {
 
       if (isTextMsg) {
         
+        // [PRE-GUARD]: อนุญาตให้คำสั่งขอ ID พื้นฐานทำงานได้แม้กลุ่มยังไม่ได้อยู่ใน Whitelist
+        const cmdTrimmed = msg.startsWith("#") ? msg.substring(1).trim() : msg;
+        
+        if (cmdTrimmed === "ขอไอดีแอดมิน") {
+          if (typeof reply === "function") reply(globalReplyToken, "🔑 LINE User ID ของคุณคือ:\n" + userId);
+          return ContentService.createTextOutput("OK");
+        }
+  
+        if (/^(เช็คไอดีกลุ่ม|ไอดีกลุ่ม|groupid)$/i.test(cmdTrimmed)) {
+          if (source.type === "group") {
+            if (typeof reply === "function") reply(globalReplyToken, `🆔 **LINE Group ID ของกลุ่มนี้คือ:**\n\n\`${groupId}\`\n\n*(สามารถคัดลอกไปใช้ตั้งค่าในระบบสคริปต์ได้ทันที)*`);
+          } else {
+            if (typeof reply === "function") reply(globalReplyToken, "⚠️ คำสั่งนี้ใช้ได้เฉพาะการพิมพ์ภายใน 'ไลน์กลุ่ม' เท่านั้นครับ");
+          }
+          return ContentService.createTextOutput("OK");
+        }
+
+        // [GUARD CLAUSE 1]: ตรวจสอบสิทธิ์กลุ่ม (Whitelist Group)
+        if (source.type === "group" && typeof isAllowedGroup === "function" && !isAllowedGroup(groupId)) {
+          if (typeof logAuditTrail === "function") {
+            logAuditTrail(userId, "BLOCKED_GROUP", `Group ID: ${groupId} rejected.`, "REJECT", 1.0, "BLOCK", "บล็อกกลุ่มที่ไม่ได้รับอนุญาต");
+          }
+          return ContentService.createTextOutput("OK");
+        }
+
         // 🛡️ ป้องกันช่างส่งงานทางแชทส่วนตัว (อนุญาตเฉพาะ Admin)
         if (source.type === "user" && !isUserAdmin) {
           if (typeof reply === "function") reply(globalReplyToken, "⚠️ ขออภัยครับ บอทรับลงรายงานเฉพาะใน 'ไลน์กลุ่ม' เท่านั้นครับ 🙏");

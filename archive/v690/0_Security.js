@@ -45,12 +45,6 @@ function getSavedGroupWhitelist() {
 function isAllowedGroup(groupId) {
   if (!groupId) return false;
   var allowedGroups = getSavedGroupWhitelist();
-  
-  if (!allowedGroups || allowedGroups.length === 0) {
-    console.warn("⚠️ แจ้งเตือน: ไม่พบการตั้งค่า Whitelist หรือ Whitelist ว่างเปล่า ระบบจึงบล็อกการทำงานเพื่อความปลอดภัย");
-    return false; 
-  }
-  
   return allowedGroups.indexOf(groupId) !== -1;
 }
 
