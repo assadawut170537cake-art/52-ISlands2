@@ -45,6 +45,8 @@ function getSavedGroupWhitelist() {
 function isAllowedGroup(groupId) {
   if (!groupId) return false;
   var allowedGroups = getSavedGroupWhitelist();
+  // หากไม่มีการตั้งค่า Whitelist ไว้เลย ให้อนุญาตให้ใช้งานได้ตามปกติ (ป้องกันบอทเงียบใส่ทุกกลุ่ม)
+  if (!allowedGroups || allowedGroups.length === 0) return true;
   return allowedGroups.indexOf(groupId) !== -1;
 }
 
