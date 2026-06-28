@@ -45,8 +45,15 @@ function getSavedGroupWhitelist() {
 function isAllowedGroup(groupId) {
   if (!groupId) return false;
   var allowedGroups = getSavedGroupWhitelist();
-  // หากไม่มีการตั้งค่า Whitelist ไว้เลย ให้อนุญาตให้ใช้งานได้ตามปกติ (ป้องกันบอทเงียบใส่ทุกกลุ่ม)
-  if (!allowedGroups || allowedGroups.length === 0) return true;
+  
+  if (!allowedGroups || allowedGroups.length === 0) {
+    console.warn("⚠️ แจ้งเตือน: ไม่พบการตั้งค่า Whitelist หรือ Whitelist ว่างเปล่า ระบบจึงบล็อกการทำงานเพื่อความปลอดภัย");
+    if (typeof logAuditTrail === "function") {
+      logAuditTrail("SYSTEM", "WHITELIST_EMPTY", "บล็อกการทำงานจากกลุ่ม " + groupId, "BLOCK", 1.0, "SECURITY", "ระบบบล็อกเพื่อความปลอดภัย");
+    }
+    return false; 
+  }
+  
   return allowedGroups.indexOf(groupId) !== -1;
 }
 

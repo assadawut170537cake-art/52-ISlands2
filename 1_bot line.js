@@ -57,7 +57,7 @@ function replyWithButtons(tk, t, b) {
   }
 }
 
-async function doPost(e) {
+function doPost(e) {
   // 🛡️ เปิดใช้งานระบบ LockService เพื่อป้องกันพนักงานส่งข้อมูลชนกัน (Race Condition)
   const lock = LockService.getScriptLock();
   
@@ -75,13 +75,13 @@ async function doPost(e) {
 
     // 🎯 สายท่อที่ 1: สัญญาณมาจาก LINE Webhook (Events Array)
     if (requestData.events && requestData.events.length > 0) {
-      return await handleLineWebhook(requestData, e);
+      return handleLineWebhook(requestData, e);
     }
 
     // 🎯 สายท่อที่ 2: สัญญาณมาจากหน้า Web App Portal
     if (requestData.source === "WEB_APP_PORTAL") {
       if (typeof handleWebAppGateway === "function") {
-        return await handleWebAppGateway(requestData);
+        return handleWebAppGateway(requestData);
       }
     }
 
@@ -98,12 +98,16 @@ async function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ status: "CRASH", error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
-    lock.releaseLock();
+    try {
+      if (lock) lock.releaseLock();
+    } catch(releaseErr) {
+      console.error("Lock Release Error: ", releaseErr);
+    }
   }
 }
 
 // 🌟 ฟังก์ชันคุมสัญญาณประมวลผล LINE Bot ร่วมกับระบบ Cache State Machine
-async function handleLineWebhook(requestData, e) {
+function handleLineWebhook(requestData, e) {
   var event = requestData.events[0];
   if (!event) return ContentService.createTextOutput("OK");
   
@@ -145,9 +149,17 @@ async function handleLineWebhook(requestData, e) {
 
         // ⚡ เช็ค State คงค้างด้วย CacheService
         const cache = CacheService.getScriptCache();
-        let pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
-        let pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
-        let pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+        let pendingClockIn12 = null;
+        let pendingOTConfirm = null;
+        let pendingOTDetails = null;
+        
+        try {
+          pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
+          pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
+          pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+        } catch(cacheReadErr) {
+          console.error("Cache Read Error:", cacheReadErr);
+        }
 
         // 🛡️ Strict Text Filtering (Silent Ignore)
         const isPostback = event.type === "postback";
@@ -159,9 +171,13 @@ async function handleLineWebhook(requestData, e) {
         }
 
         if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
-          cache.remove(`PENDING_CLOCKIN_${userId}`);
-          cache.remove(`PENDING_OT_CONFIRM_${userId}`);
-          cache.remove(`PENDING_OT_DETAILS_${userId}`);
+          try {
+            cache.remove(`PENDING_CLOCKIN_${userId}`);
+            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+            cache.remove(`PENDING_OT_DETAILS_${userId}`);
+          } catch(cacheRemErr) {
+            console.error("Cache Remove Error:", cacheRemErr);
+          }
           if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
           pendingClockIn12 = null; pendingOTConfirm = null; pendingOTDetails = null;
         }
@@ -169,12 +185,12 @@ async function handleLineWebhook(requestData, e) {
         // 1. จัดการ State: ลงรายละเอียดไซต์งานโอที
         if (pendingOTDetails) {
           if (msg === "ยกเลิกลงเวลา") {
-            cache.remove(`PENDING_OT_DETAILS_${userId}`);
+            try { cache.remove(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
           }
           let dataToProcess = JSON.parse(pendingOTDetails);
-          cache.remove(`PENDING_OT_DETAILS_${userId}`);
+          try { cache.remove(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
           if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_DETAILS", msg, JSON.stringify(dataToProcess), 1.0, "ACCEPT_DETAILS", "ประมวลผลรายละเอียดไซต์งานโอที");
           if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, msg);
           return ContentService.createTextOutput("OK");
@@ -184,20 +200,22 @@ async function handleLineWebhook(requestData, e) {
         if (pendingOTConfirm) {
           let dataToProcess = JSON.parse(pendingOTConfirm);
           if (msg === "ทำที่เดิม/งานเดิม") {
-            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+            try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
             if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, null);
             return ContentService.createTextOutput("OK");
           }
           else if (msg === "เปลี่ยนไซต์/เปลี่ยนงาน") {
-            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
-            cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300);
+            try { 
+              cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+              cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300);
+            } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "CHANGE_SITE", "ร้องขอเปลี่ยนไซต์ทำโอที");
             if (typeof reply === "function") reply(globalReplyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
             return ContentService.createTextOutput("OK");
           }
           else if (msg === "ยกเลิกลงเวลา") {
-            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+            try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
@@ -212,7 +230,7 @@ async function handleLineWebhook(requestData, e) {
             return ContentService.createTextOutput("OK");
           }
           else if (msg === "ยกเลิกลงเวลา") {
-            cache.remove(`PENDING_CLOCKIN_${userId}`);
+            try { cache.remove(`PENDING_CLOCKIN_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "REJECT_12", "ยกเลิกการยืนยันเวลาช่วงบ่าย");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");

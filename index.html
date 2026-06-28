@@ -245,6 +245,10 @@
                 if (this.state.hasError) {
                     return (
                         <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+                            <div className="header-content">
+                                <h1>Smart Worksite</h1>
+                                <p>ระบบบันทึกเวลาและค่าจ้างอัจฉริยะ V.7 (Debug)</p>
+                            </div>
                             <div className="bg-white p-6 rounded-2xl shadow-xl border border-red-100 max-w-xl w-full">
                                 <h2 className="text-xl font-bold text-red-600 mb-2">⚠️ เกิดข้อผิดพลาดในระบบ</h2>
                                 <p className="text-sm text-slate-600 mb-4">หน้าเว็บไม่สามารถแสดงผลได้ กรุณาตรวจสอบโค้ดตามแจ้งเตือนด้านล่าง:</p>
@@ -1145,10 +1149,13 @@
                         const customDetails = employeeCustomData[empId] || { note: bulkNote };
 
                         const singlePayload = {
-                            workDate: selectedDate,
-                            siteName: selectedSite,
-                            staffName: workerName,
-                            accommodation: workerCamp,
+                            date: selectedDate,
+                            site: selectedSite,
+                            normalHour: Number(workH),
+                            otTotal: otCalculated,
+                            employees: [workerName],
+                            timeIn: bulkStartTime,
+                            timeOut: bulkEndTime,
                             note: customDetails.note || bulkNote,
                             isAdmin: isAdmin
                         };

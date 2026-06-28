@@ -23,7 +23,11 @@ function fetchWithRetry(url, payload, isJson, attempts = 3, backoffMs = 500) {
   return null;
 }
 
-async 
+async function callGeminiVision(base64Str, system, mimeType) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getDynamicConfig('MODEL_NAME')}:generateContent?key=${getDynamicConfig('GEMINI_API_KEY')}`;
+  const payload = { contents: [{ parts: [{ text: "Extract worker codes." }, { inlineData: { mimeType: mimeType, data: base64Str } }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: { responseMimeType: "application/json" } };
+  return fetchWithRetry(url, payload, true);
+}
 
 async function processMessageWithAI(message) {
   const prompt = `คุณคือระบบประมวลผลข้อมูล (API) ห้ามอธิบายใดๆ แปลงข้อความเป็น JSON โครงสร้างดังนี้: 
@@ -149,7 +153,55 @@ function parseComplexMessage(text) {
   } catch (e) { return null; }
 }
 
+function writeToDailySheet(data, userId, fileId) {
+  const ss = SpreadsheetApp.openById(fileId);
+  const sheetName = parseThaiDate(data.date);
+  const sheet = ss.getSheetByName(sheetName);
+  
+  if (!sheet) return { count: 0, errors: ["ไม่พบหน้าวันที่: " + sheetName] };
+  const dbData = sheet.getRange(3, 4, sheet.getLastRow(), 2).getValues();
+  
+  let successCount = 0; let errors = []; let processedNames = []; let replyAccom = "ไม่ได้ระบุ"; 
+  const fuzzyThreshold = parseFloat(getDynamicConfig("FUZZY_THRESHOLD")); // 🔮 ดึงค่า Fuzzy
 
+  data.employees.forEach(emp => {
+    let rowIndex = -1;
+    const inputName = normalize(emp.firstname);
+    
+    // 🔮 ค้นหาชื่อด้วย Fuzzy Logic ผสมแบบเก่า
+    let bestScore = 0;
+    for (let i = 0; i < dbData.length; i++) {
+      const dbName = normalize(dbData[i][0]);
+      if (!dbName) continue;
+      
+      const score = getStringSimilarity(inputName, dbName);
+      if (score === 1.0 || (score >= fuzzyThreshold && score > bestScore)) {
+          bestScore = score;
+          rowIndex = 3 + i;
+          if (score === 1.0) break; // ตรงเป๊ะออกเลย
+      }
+    }
+    
+    if (rowIndex !== -1) {
+      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_SITE).setValue(data.default_site);
+      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_WORK).setValue(emp.task);
+      
+      let empAccom = emp.accom;
+      if (!empAccom || empAccom === "-" || empAccom === "เดิม") empAccom = sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).getValue();
+      else sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).setValue(empAccom);
+      if (successCount === 0) replyAccom = empAccom || "ไม่ได้ระบุ";
+
+      const otHrs = calculateAndTimeEntry(sheet, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
+      if (otHrs > 0) { sheet.getRange(rowIndex, 9).setValue(data.default_site); sheet.getRange(rowIndex, 10).setValue(emp.task); } 
+      else { sheet.getRange(rowIndex, 9).clearContent(); sheet.getRange(rowIndex, 10).clearContent(); }
+      
+      successCount++; processedNames.push(inputName);
+    } else { errors.push(emp.firstname); }
+  });
+
+  if (userId && successCount > 0) PropertiesService.getScriptProperties().setProperty(`LAST_ENTRY_${userId}`, JSON.stringify({ date: data.date, names: processedNames }));
+  return { count: successCount, errors: errors, accom: replyAccom };
+}
 
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
   if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
@@ -207,10 +259,7 @@ function getEmployeesByCodes(codes) {
     const sheet = SpreadsheetApp.openById(GLOBAL_CONFIG.EXTERNAL_DATABASE_ID).getSheetByName(GLOBAL_CONFIG.DATABASE_SHEET_NAME);
     const data = sheet.getRange(2, 1, sheet.getLastRow(), 14).getValues();
     return data.filter(r => codes.includes(String(r[13]).trim())).map(r => ({ code: r[13], firstname: r[2], lastname: r[3] }));
-  } catch (e) { 
-    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "getEmployeesByCodes", e.message);
-    return []; 
-  }
+  } catch (e) { return []; }
 }
 
 // =================================================================
@@ -273,7 +322,24 @@ function fixAllOTInSheet() {
 // -----------------------------------------------------------------
 // 🛠️ ฟังก์ชันเสริมประสิทธิภาพฉบับ Hotfix แบบไม่พึ่งพารายการนอกไฟล์
 // -----------------------------------------------------------------
-
+function getTargetFileIdByDate(dateStr) {
+  let mIndex = new Date().getMonth(); 
+  if (dateStr) { 
+    const p = String(dateStr).replace("#", "").trim().split(/[\/\-.]/); 
+    if (p.length >= 2) { 
+      let m = parseInt(p[1], 10) - 1; 
+      if (m >= 0 && m <= 11) mIndex = m; 
+    } 
+  }
+  
+  // 📂 อ้างอิงตาม MONTHLY_FILE_IDS ของ 4_Config ล่าสุด
+  if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[mIndex]) {
+    return MONTHLY_FILE_IDS[mIndex];
+  }
+  
+  // Fallback: ใช้ฐานข้อมูลกลางแทน (ลบ backupIds ออก — ให้ MONTHLY_FILE_IDS ใน Config.gs เป็นแหล่งเดียว)
+  return getDynamicConfig("EXTERNAL_DATABASE_ID");
+}
 
 // ⚠️ [CONSOLIDATED] getDynamicPrompt() ถูกรวมไปไว้ที่ 7_AI_Assistant.gs (เวอร์ชันเต็มที่อ่านจาก Script Properties ก่อน)
 // ป้องกัน GAS "last wins" override ที่ทำให้ AI prompt ไม่สามารถอัปเดตผ่าน setDynamicPrompt() ได้
@@ -330,49 +396,44 @@ function parseThaiDate(s) {
  * @param {string} level - ระดับความรุนแรง (INFO, WARN, ERROR, CRITICAL)
  * @param {string} errorMessage - รายละเอียดข้อผิดพลาดเชิงลึก
  */
-function logAuditTrail(userId, actionType, inputRaw, machineStructured, confidence, userAction, executionMessage) {
-  const lock = LockService.getDocumentLock();
+function logAuditTrail(actionType, status, payload, user, execTime, level, errorMessage) {
   try {
-    lock.waitLock(10000);
-    
-    var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
-    var ss;
-    if (dbId) {
-      ss = typeof getCachedSpreadsheet === 'function' ? getCachedSpreadsheet(dbId) : SpreadsheetApp.openById(dbId);
-    } else {
-      ss = SpreadsheetApp.getActiveSpreadsheet(); // Fallback to current if no external DB ID
-    }
-    
-    var sheetName = "Audit_Log";
-    var sheet = ss.getSheetByName(sheetName);
-    
+    const ss = SpreadsheetApp.getActiveSpreadsheet(); // หากต้องการชี้ไปไฟล์อื่นให้ใช้ openById
+    const sheetName = "AuditLog";
+    let sheet = ss.getSheetByName(sheetName);
+
+    // สร้างหน้า Sheet อัตโนมัติหากยังไม่มี เพื่อป้องกันระบบพัง
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(["วัน-เวลา", "LINE User ID", "ประเภทเหตุการณ์", "ข้อความอินพุตดิบ", "โครงสร้างข้อมูลระดับเครื่อง", "คะแนนความมั่นใจ", "การดำเนินการของยูสเซอร์", "บันทึกข้อความจากเซิร์ฟเวอร์"]);
-      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#cfe2ff").setHorizontalAlignment("center");
+      sheet.appendRow(["Timestamp", "Level", "Action", "Status", "User", "ExecutionTime(ms)", "Payload", "ErrorMessage"]);
+      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#e0e0e0");
       sheet.setFrozenRows(1);
     }
-    
-    // Fallbacks and safety checks
-    const safeInput = String(inputRaw || "").substring(0, 1000);
-    const safeMachine = String(machineStructured || "").substring(0, 1000);
-    const safeMsg = String(executionMessage || "").substring(0, 1000);
+
+    const timestamp = new Date();
+    // จัดการข้อมูลให้ปลอดภัย ป้องกันช่องโหว่ความยาวข้อมูลเกินโควต้าชีต
+    const safePayload = typeof payload === 'object' ? JSON.stringify(payload) : String(payload || "");
+    const safeError = String(errorMessage || "");
 
     sheet.appendRow([
-      Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss"),
-      userId || "SYSTEM",
+      timestamp,
+      level || "INFO",
       actionType || "UNKNOWN",
-      safeInput,
-      safeMachine,
-      confidence || 1.0,
-      userAction || "",
-      safeMsg
+      status || "UNKNOWN",
+      user || "SYSTEM",
+      execTime || 0.0,
+      safePayload.substring(0, 1000), // ตัดคำให้ไม่เกิน 1,000 ตัวอักษรป้องกันล้น
+      safeError.substring(0, 1000)
     ]);
 
-  } catch (err) {
-    console.error("[CRITICAL] ระบบ AuditTrail ล้มเหลว: " + err.message);
-  } finally {
-    lock.releaseLock();
+    // แจ้งเตือนแบบ Real-time ลง Console ของนักพัฒนาหากเกิด ERROR
+    if (level === "ERROR" || level === "CRITICAL") {
+      console.error(`[AUDIT ${level}] ${actionType}: ${safeError}`);
+    }
+
+  } catch (e) {
+    // ปราการด่านสุดท้าย ไม่ให้ระบบหลักล่มหาก Audit พัง
+    console.error(`[CRITICAL] ระบบ AuditTrail ล้มเหลว: ${e.message}`);
   }
 }
 // =================================================================

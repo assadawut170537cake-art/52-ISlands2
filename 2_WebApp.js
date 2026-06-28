@@ -16,14 +16,13 @@ function apiSaveConfigFromWeb(key, value) {
 // =====================================================================
 function getEmployeeData() {
   try {
-    // 1. ค้นหาไฟล์ด้วยชื่อในระบบ Google Drive
-    var files = DriveApp.getFilesByName('ไฟล์ DATA');
-    if (!files.hasNext()) {
-      return []; // หากไม่พบไฟล์ จะส่งอาเรย์ว่างกลับไปป้องกันระบบล่ม
+    var dbId = (typeof GLOBAL_CONFIG !== 'undefined' && GLOBAL_CONFIG.EXTERNAL_DATABASE_ID) ? GLOBAL_CONFIG.EXTERNAL_DATABASE_ID : '1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk';
+    if (typeof getDynamicConfig === 'function') {
+      var configDbId = getDynamicConfig("EMPLOYEE_SHEET_ID") || getDynamicConfig("EXTERNAL_DATABASE_ID");
+      if (configDbId) dbId = configDbId;
     }
-
-    var file = files.next();
-    var ss = SpreadsheetApp.open(file);
+    
+    var ss = SpreadsheetApp.openById(dbId);
 
     // 🎯 กำหนดให้ค้นหาจากชีต 'รายชื่อพนักงาน' เป็นหลักก่อน (หากไม่พบถึงจะดึงชีตแรก)
     var sheet = ss.getSheetByName('รายชื่อพนักงาน') || ss.getSheets()[0];
@@ -48,11 +47,19 @@ function getEmployeeData() {
         });
       }
     }
+    
+    // ถ้าไม่มีข้อมูลเลย ให้ส่งข้อมูลแจ้งเตือน
+    if (employeeList.length === 0) {
+      employeeList.push({ A: 1, B: 'SYS', C: 'NoData', D: 'Found', E: 'SYS NoData Found in Sheet', J: 'System', K: 'ปกติ', N: 'ERROR-01' });
+    }
+    
     return employeeList;
-
-  } catch (error) {
-    Logger.log("Error ในฟังก์ชัน getEmployeeData: " + error.toString());
-    return [];
+  } catch(e) {
+    console.error("getEmployeeData error:", e);
+    // ส่ง Error กลับไปเป็นข้อมูลพนักงานเพื่อให้หน้าเว็บแสดงผลว่าพังเพราะอะไร
+    return [{
+      A: 1, B: 'ERR', C: 'Exception', D: '', E: 'ERR: ' + e.message, J: 'System', K: 'ปกติ', N: 'ERROR-02'
+    }];
   }
 }
 // =====================================================================
@@ -60,6 +67,25 @@ function getEmployeeData() {
 // ⚠️ แก้ไขแล้ว: ใช้ openById + MONTHLY_FILE_IDS แทน getActiveSpreadsheet()
 //    เพราะ Web App ไม่มี "active spreadsheet" ทำให้ไม่เคยบันทึกลงชีตจริงได้
 // =====================================================================
+function doGet(e) {
+  if (e && e.parameter && e.parameter.debug) {
+    try {
+      const monthIndex = new Date().getMonth();
+      const targetFileId = getDynamicConfig("MONTHLY_FILE_IDS")[monthIndex];
+      const ss = SpreadsheetApp.openById(targetFileId);
+      const sheet = ss.getSheets()[0];
+      const names = sheet.getRange(3, 4, 10, 1).getValues();
+      return ContentService.createTextOutput("Top 10 names in Daily Sheet:\n" + JSON.stringify(names));
+    } catch(err) {
+      return ContentService.createTextOutput("Debug Error: " + err.message);
+    }
+  }
+  // โหลดหน้า index.html และตั้งค่า Viewport สำหรับมือถือ
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('Smart Worksite System')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
 function saveDailyReport(payload) {
   var lock = LockService.getScriptLock();
   try {
@@ -73,7 +99,10 @@ function saveDailyReport(payload) {
     var isAdmin = payload.isAdmin === true;
 
     if (!employees || employees.length === 0) {
-      return { success: false, message: "ไม่พบรายชื่อพนักงานที่เลือก" };
+      if (typeof logAuditTrail === "function") {
+        logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT_PAYLOAD_FAIL", JSON.stringify(payload).substring(0, 500), "", 0, "ERROR", "Payload missing employees");
+      }
+      return { success: false, message: "ไม่พบรายชื่อพนักงานที่เลือก: Keys=" + Object.keys(payload).join(",") };
     }
 
     // 🚨 Server-Side Validation: ตรวจสอบวันที่ย้อนหลัง
@@ -117,34 +146,44 @@ function saveDailyReport(payload) {
     var thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
     var thaiFullDate = targetDate.getDate() + " " + thaiMonths[targetDate.getMonth()] + " " + (targetDate.getFullYear() + 543);
 
-    // 🔍 ค้นหาแท็บชีตแบบ Tolerant (รองรับช่องว่างต่าง)
-    var sheet = ss.getSheetByName(thaiFullDate);
-    if (!sheet) {
-      var allSheets = ss.getSheets();
-      var cleanTarget = thaiFullDate.replace(/\s+/g, "");
-      for (var s = 0; s < allSheets.length; s++) {
-        if (allSheets[s].getName().replace(/\s+/g, "") === cleanTarget) {
-          sheet = allSheets[s];
-          break;
-        }
-      }
-    }
-
-    if (!sheet) {
-      return { success: false, message: "ไม่พบแท็บชีตวันที่: " + thaiFullDate + " ในไฟล์เดือนที่ " + (monthIndex + 1) + " (กรุณาสร้างแท็บวันที่ในไฟล์ก่อน)" };
-    }
-
-    // ✅ บันทึกข้อมูลพนักงานลงแถวใหม่ในชีต
+    // 🚀 ส่งต่อให้ตัวประมวลผลส่วนกลาง (writeToDailySheetBatch) เพื่อให้เป็นมาตรฐานเดียวกัน
+    var employeesData = [];
     for (var i = 0; i < employees.length; i++) {
-      sheet.appendRow([dateStr, site, employees[i], normalHour, otTotal]);
+      var workerName = String(employees[i]).trim();
+      
+      employeesData.push({
+        firstname: workerName,
+        task: payload.note || "",
+        accom: "-", // ไม่ได้ส่งมาจาก WebApp ให้คงเดิม
+        has_ot_noon: false,
+        ot_noon_in: "",
+        ot_noon_out: ""
+      });
     }
 
-    // 📝 บันทึก Audit Trail
-    if (typeof logAuditTrail === "function") {
-      logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + employees.length + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
-    }
+    var dataToProcess = {
+      date: thaiFullDate,
+      default_site: site,
+      time_start: payload.timeIn || "",
+      time_end: payload.timeOut || "",
+      employees: employeesData
+    };
 
-    return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + employees.length + " คน)" };
+    if (typeof writeToDailySheetBatch === 'function') {
+      var writeRes = writeToDailySheetBatch(dataToProcess, "WEB_APP_USER", targetFileId);
+      
+      if (writeRes.count > 0) {
+        // 📝 บันทึก Audit Trail
+        if (typeof logAuditTrail === "function") {
+          logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + writeRes.count + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
+        }
+        return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + writeRes.count + " คน)" };
+      } else {
+        return { success: false, message: "บันทึกไม่สำเร็จ: " + (writeRes.errors ? writeRes.errors.join(", ") : "ไม่พบรายชื่อในชีต") };
+      }
+    } else {
+      return { success: false, message: "ระบบประมวลผลส่วนกลาง (writeToDailySheetBatch) ไม่พร้อมใช้งาน" };
+    }
 
   } catch (err) {
     // บันทึก Error ลง Audit
