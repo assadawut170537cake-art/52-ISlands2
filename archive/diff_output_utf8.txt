@@ -1,0 +1,2697 @@
+﻿diff --git a/v690/0_Security.js b/v720/0_Security.js
+index 13f87a4..f7b0a74 100644
+--- a/v690/0_Security.js
++++ b/v720/0_Security.js
+@@ -45,6 +45,8 @@ function getSavedGroupWhitelist() {
+ function isAllowedGroup(groupId) {
+   if (!groupId) return false;
+   var allowedGroups = getSavedGroupWhitelist();
++  // หากไม่มีการตั้งค่า Whitelist ไว้เลย ให้อนุญาตให้ใช้งานได้ตามปกติ (ป้องกันบอทเงียบใส่ทุกกลุ่ม)
++  if (!allowedGroups || allowedGroups.length === 0) return true;
+   return allowedGroups.indexOf(groupId) !== -1;
+ }
+ 
+diff --git a/v690/10_DevOps_Core.js b/v720/10_DevOps_Core.js
+index e0a2a61..f042e6e 100644
+--- a/v690/10_DevOps_Core.js
++++ b/v720/10_DevOps_Core.js
+@@ -46,6 +46,7 @@ function onOpen() {
+     .addItem('📝 บันทึกการอัปเดต (Changelog)', 'promptChangelog')
+     .addItem('📝 ตรวจสอบฟังชั้นซ้ำ (ฟังชั้นเค้ก)', 'mergeDuplicateFunctions')
+     .addItem('📝 อัปเดตโค้ด (ฟังชั้นเค้ก)', 'showDevOpsInjectorSidebar')
++    .addItem('🔥 ฟังก์ชันพิเศษ (รอการระบุ)', 'placeholderSpecialFunction')
+     .addToUi();
+ 
+   const ss = SpreadsheetApp.getActiveSpreadsheet();
+@@ -53,6 +54,14 @@ function onOpen() {
+   if (workspaceSheet) ss.setActiveSheet(workspaceSheet);
+ }
+ 
++/**
++ * ฟังก์ชันสำหรับเชื่อมต่อโค้ดพิเศษที่คุณจะส่งให้
++ */
++function placeholderSpecialFunction() {
++  const ui = SpreadsheetApp.getUi();
++  ui.alert("🔥 ระบบรอรับโค้ดพิเศษ", "โปรดส่งโค้ดฟังก์ชันที่คุณต้องการให้ AI เข้ามาผสานลงในปุ่มนี้ผ่านทางแชทอีกครั้งครับ", ui.ButtonSet.OK);
++}
++
+ /**
+  * ฟังก์ชันสร้างโครงสร้างบอร์ดจัดระเบียบหน้ากระดาน Layout สั้นกระชับ (A - F)
+  */
+@@ -366,4 +375,101 @@ function showDevOpsInjectorSidebar() {
+       .setTitle('DevOps Workspace Injector (V11)')
+       .setWidth(300);
+   SpreadsheetApp.getUi().showSidebar(html);
++}
++
++// =================================================================
++// 📸 ระบบ Code Checkpoints & Rollback Snapshots (Max 5)
++// =================================================================
++
++function getSnapshotFolder() {
++  const parentFolderId = typeof getDynamicConfig === 'function' ? getDynamicConfig("DRIVE_FOLDER_ID") : "1PTdHuQErX_ZxJPypS-xb4Gw3vcmuOvtJ";
++  const parent = DriveApp.getFolderById(parentFolderId);
++  const folders = parent.getFoldersByName("System_Snapshots");
++  if (folders.hasNext()) return folders.next();
++  return parent.createFolder("System_Snapshots");
++}
++
++function createCodeSnapshot() {
++  try {
++    const scriptId = ScriptApp.getScriptId();
++    const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
++    const options = { method: "get", headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true };
++    const response = UrlFetchApp.fetch(url, options);
++    
++    if (response.getResponseCode() !== 200) {
++      throw new Error("API Error: " + response.getContentText());
++    }
++
++    const folder = getSnapshotFolder();
++    const timestamp = Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd_HHmmss");
++    const fileName = "snapshot_" + timestamp + ".json";
++    
++    // Create new snapshot
++    folder.createFile(fileName, response.getContentText(), MimeType.PLAIN_TEXT);
++    
++    // Manage max 5 files
++    const filesIter = folder.getFilesByType(MimeType.PLAIN_TEXT);
++    const files = [];
++    while (filesIter.hasNext()) {
++      files.push(filesIter.next());
++    }
++    
++    // Sort ascending by date (oldest first)
++    files.sort((a, b) => a.getDateCreated().getTime() - b.getDateCreated().getTime());
++    
++    // If more than 5, delete the oldest
++    while (files.length > 5) {
++      const oldest = files.shift();
++      oldest.setTrashed(true);
++    }
++    
++    return { success: true, message: `📸 ถ่ายรูปโค้ดและสร้าง Snapshot สำเร็จ! (ไฟล์: ${fileName})` };
++  } catch (e) {
++    return { success: false, error: e.message };
++  }
++}
++
++function rollbackCodeSnapshot(step) {
++  try {
++    const folder = getSnapshotFolder();
++    const filesIter = folder.getFilesByType(MimeType.PLAIN_TEXT);
++    const files = [];
++    while (filesIter.hasNext()) {
++      files.push(filesIter.next());
++    }
++    
++    if (files.length === 0) return { success: false, error: "❌ ไม่พบไฟล์ Snapshot ในระบบเลยครับ" };
++    
++    // Sort descending (newest first)
++    files.sort((a, b) => b.getDateCreated().getTime() - a.getDateCreated().getTime());
++    
++    if (step < 1 || step > files.length) {
++      return { success: false, error: `❌ ระบุลำดับไม่ถูกต้อง (มีไฟล์สำรองทั้งหมด ${files.length} ไฟล์)` };
++    }
++    
++    const targetFile = files[step - 1];
++    const fileContent = targetFile.getBlob().getDataAsString();
++    const payload = JSON.parse(fileContent);
++    
++    const scriptId = ScriptApp.getScriptId();
++    const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
++    const options = { 
++      method: "put", 
++      headers: { 
++        Authorization: "Bearer " + ScriptApp.getOAuthToken(),
++        "Content-Type": "application/json"
++      }, 
++      payload: JSON.stringify(payload),
++      muteHttpExceptions: true 
++    };
++    
++    const response = UrlFetchApp.fetch(url, options);
++    if (response.getResponseCode() !== 200) {
++      throw new Error("Update API Error: " + response.getContentText());
++    }
++    
++    return { success: true, message: `↩️ กู้คืนโค้ดกลับไปยัง Snapshot ที่ ${step} (${targetFile.getName()}) เรียบร้อยแล้วครับ!` };
++  } catch (e) {
++    return { success: false, error: e.message };
++  }
+ }
+\ No newline at end of file
+diff --git a/v690/1_bot line.js b/v720/1_bot line.js
+index f90048c..a487ae6 100644
+--- a/v690/1_bot line.js	
++++ b/v720/1_bot line.js	
+@@ -1,460 +1,400 @@
++// =================================================================
++// 1_LineBot.gs (ด่านหน้ารับข้อความ Line, ChatOps, และลอจิกแชทบอท)
++// =================================================================
++
++function reply(tk, m) {
++  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
++    headers: {
++      'Content-Type': 'application/json',
++      'Authorization': 'Bearer ' + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN')
++    },
++    method: 'post',
++    payload: JSON.stringify({ replyToken: tk, messages: [{ type: 'text', text: m }] })
++  });
++}
++
+ /**
+- * =================================================================
+- * SMART WORKSITE SYSTEM - PERFECT HYBRID MASTER (V.12)
+- * รวบรวมฟังก์ชัน: Webhook, LINE Bot, AI Gemini, OT Logic, และ Audit Log
+- * สถานะ: ใช้งานจริง (Production Ready) / Synchronous Execution
+- * =================================================================
++ * ส่งข้อความพร้อมปุ่มเลือก (Quick Reply) ไปยัง LINE
++ * @param {string} tk - Reply Token
++ * @param {string} t - ข้อความที่จะส่ง
++ * @param {Array<string>} b - อาร์เรย์ของปุ่ม (Label/Text)
+  */
++function replyWithButtons(tk, t, b) {
++  try {
++    const LINE_TOKEN = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
++    if (!LINE_TOKEN) throw new Error("Missing LINE_CHANNEL_ACCESS_TOKEN");
+ 
+-/** 
+- * 🚀 ฟังก์ชันหลักสำหรับรับ Webhook จาก LINE (Entry Point) [V12 Master Optimized]
+- * หน้าที่: รับและคัดกรองข้อมูลเบื้องต้น ป้องกันข้อมูลชนกัน และส่งต่อให้ Router หลักอย่างลื่นไหล
+- * @param {Object} e - Event Object จาก Google Apps Script (บรรจุ HTTP POST payload)
+- * @returns {Object} TextOutput ส่งกลับไปยัง LINE Server ทันทีด้วยสถานะ 200 OK
+-**/
+-function doPost(e) {
+-  // 🛡️ 1. ดักสัญญาณ Webhook Verification จาก LINE
+-  if (e && e.postData && e.postData.contents) {
+-    try {
+-      const preCheckData = JSON.parse(e.postData.contents);
+-      if (preCheckData.events && (preCheckData.events.length === 0 || (preCheckData.events[0] && preCheckData.events[0].replyToken === "00000000000000000000000000000000"))) {
+-        return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
+-      }
+-    } catch (parseErr) {
+-      // ข้ามไป
++    const items = b.map(l => ({ 
++      "type": "action", 
++      "action": { "type": "postback", "label": l, "data": "#" + l } 
++    }));
++
++    const payload = { 
++      replyToken: tk, 
++      messages: [{ 
++        "type": "text", 
++        "text": t, 
++        "quickReply": { "items": items } 
++      }] 
++    };
++
++    const response = UrlFetchApp.fetch("https://api.line.me/v2/bot/message/reply", {
++      method: "post",
++      headers: {
++        "Content-Type": "application/json",
++        "Authorization": "Bearer " + LINE_TOKEN
++      },
++      payload: JSON.stringify(payload),
++      muteHttpExceptions: true // สำคัญ: เพื่อให้เราจัดการ Error เองได้โดยไม่หยุดการทำงาน
++    });
++
++    const code = response.getResponseCode();
++    if (code !== 200) {
++      console.error(`LINE API Error (${code}): ${response.getContentText()}`);
+     }
++  } catch (e) {
++    console.error("replyWithButtons failed: " + e.message);
+   }
++}
+ 
+-  // 🔒 2. เริ่มระบบ LockService เพื่อป้องกันข้อมูลชนกัน
++async function doPost(e) {
++  // 🛡️ เปิดใช้งานระบบ LockService เพื่อป้องกันพนักงานส่งข้อมูลชนกัน (Race Condition)
+   const lock = LockService.getScriptLock();
+-  let globalReplyToken = null;
+-
++  
+   try {
+-    lock.waitLock(30000); 
+-
++    // รอคิวเข้าถึงทรัพยากรสูงสุด 30 วินาที หากมีการทำงานพร้อมกัน
++    lock.waitLock(30000);
++    
++    // 🟢 โค้ดผสานระดับโปร V11: เชื่อม Gateway Orchestrator เข้ากับ Multi-Agent & State Cache Engine
+     if (!e || !e.postData || !e.postData.contents) {
+-      return ContentService.createTextOutput(JSON.stringify({ status: "ERROR", message: "No data received" })).setMimeType(ContentService.MimeType.JSON);
++      return ContentService.createTextOutput(JSON.stringify({ status: "ERROR", message: "No data received" }))
++        .setMimeType(ContentService.MimeType.JSON);
+     }
+ 
+     const requestData = JSON.parse(e.postData.contents);
+ 
+-    // 🎯 ท่อที่ 1: สัญญาณจาก LINE Webhook
++    // 🎯 สายท่อที่ 1: สัญญาณมาจาก LINE Webhook (Events Array)
+     if (requestData.events && requestData.events.length > 0) {
+-      const event = requestData.events[0];
+-      globalReplyToken = event.replyToken;
+-
+-      // ป้องกัน Dummy Token หลุดรอด
+-      if (globalReplyToken === "00000000000000000000000000000000") {
+-        return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
+-      }
+-
+-      // ⚡ ปล่อยให้ handleLineWebhook ทำหน้าที่คัดกรองอย่างละเอียดและตอบกลับ
+-      if (typeof handleLineWebhook === "function") {
+-        handleLineWebhook(event);
+-      }
+-      
+-      return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
++      return await handleLineWebhook(requestData, e);
+     }
+ 
+-    // 🎯 ท่อที่ 2: สัญญาณจากหน้า Web App Portal
+-    if (requestData.source === "WEB_APP_PORTAL" || requestData.type === "SAVE") {
++    // 🎯 สายท่อที่ 2: สัญญาณมาจากหน้า Web App Portal
++    if (requestData.source === "WEB_APP_PORTAL") {
+       if (typeof handleWebAppGateway === "function") {
+-        handleWebAppGateway(requestData);
+-        return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
++        return await handleWebAppGateway(requestData);
+       }
+     }
+ 
+-    return ContentService.createTextOutput(JSON.stringify({ status: "IGNORED" })).setMimeType(ContentService.MimeType.JSON);
++    return ContentService.createTextOutput(JSON.stringify({ status: "IGNORED" }))
++      .setMimeType(ContentService.MimeType.JSON);
+ 
+   } catch (err) {
+-    if (globalReplyToken && globalReplyToken !== "00000000000000000000000000000000" && typeof emergencyReply === "function") {
+-      try {
+-        emergencyReply(globalReplyToken, "🔴 ระบบภายในขัดข้อง: " + err.message);
+-      } catch (replyErr) {
+-        // ละเว้นหากส่งกลับไม่ได้
+-      }
++    if (typeof logError === "function") {
++      logError("doPostOrchestratorพัง", err.toString(), e && e.postData ? e.postData.contents : "");
+     }
+-    return ContentService.createTextOutput(JSON.stringify({ status: "success", error: err.message })).setMimeType(ContentService.MimeType.JSON);
+-  } finally {
+-    // 🔓 3. ปลดล็อกทรัพยากร (ใส่ try-catch ป้องกันบั๊กซ้อนทับ)
+-    try {
+-      if (lock) lock.releaseLock();
+-    } catch (e) {
+-      console.error("Lock Release Error:", e.message);
++    if (typeof logAuditTrail === "function") {
++      logAuditTrail("SYSTEM_ERROR", "RUNTIME_EXCEPTION", e && e.postData ? e.postData.contents : "", "", 0.0, "ERROR", err.message);
+     }
++    return ContentService.createTextOutput(JSON.stringify({ status: "CRASH", error: err.toString() }))
++      .setMimeType(ContentService.MimeType.JSON);
++  } finally {
++    lock.releaseLock();
+   }
+ }
+ 
++// 🌟 ฟังก์ชันคุมสัญญาณประมวลผล LINE Bot ร่วมกับระบบ Cache State Machine
++async function handleLineWebhook(requestData, e) {
++  var event = requestData.events[0];
++  if (!event) return ContentService.createTextOutput("OK");
++  
++  var source = event.source;
++  var groupId = source.groupId;
++  
++  // ตรวจสอบสิทธิ์ Group ID
++  if (source.type === "group" && typeof isAllowedGroup === "function" && !isAllowedGroup(groupId)) {
++    return ContentService.createTextOutput("OK");
++  }
+ 
+-/**
+- * 🛠️ ฟังก์ชันจัดการ LINE Webhook พร้อมระบบ Cache State Machine
+- * หน้าที่: คัดกรองสิทธิ์ ดักจับสถานะที่ค้างอยู่ และแยกแยะคำสั่งทั่วไป/Admin
+- * @param {Object} event - Event Object ต้นฉบับจาก LINE
+- */
+-function handleLineWebhook(event) {
+-  try {
+-    const replyToken = event.replyToken;
+-    const source = event.source;
+-    const message = event.message;
+-    const userId = source ? source.userId : null;
+-    const groupId = source ? source.groupId : null;
+-
+-    // [PRE-GUARD]: อนุญาตให้คำสั่งขอ ID พื้นฐานทำงานได้แม้กลุ่มยังไม่ได้อยู่ใน Whitelist
+-    if (message && message.type === "text") {
+-      const msgTrimmed = message.text.trim();
+-      const cmdTrimmed = msgTrimmed.startsWith("#") ? msgTrimmed.substring(1).trim() : msgTrimmed;
++  if (event.type === "message" || event.type === "postback") {
++    let globalReplyToken = event.replyToken;
++    try {
++      const userId = source.userId;
++      const adminId = typeof getDynamicConfig === "function" ? getDynamicConfig("ADMIN_LINE_IDS") : "";
++      const adminList = (adminId || "").split(",").map(id => id.trim());
++      const status = typeof getDynamicConfig === "function" ? getDynamicConfig("SYSTEM_STATUS") : "ON";
++      const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
++
++      let msg = "";
++      let isTextMsg = false;
+       
+-      if (cmdTrimmed === "ขอไอดีแอดมิน") {
+-        emergencyReply(replyToken, "🔑 LINE User ID ของคุณคือ:\n" + userId);
+-        return;
++      if (event.type === "postback") {
++         msg = event.postback.data.trim();
++         isTextMsg = true;
++      } else if (event.message && event.message.type === "text") {
++         msg = event.message.text.trim();
++         isTextMsg = true;
+       }
+ 
+-      if (/^(เช็คไอดีกลุ่ม|ไอดีกลุ่ม|groupid)$/i.test(cmdTrimmed)) {
+-        if (source.type === "group") {
+-          emergencyReply(replyToken, `🆔 **LINE Group ID ของกลุ่มนี้คือ:**\n\n\`${groupId}\`\n\n*(สามารถคัดลอกไปใช้ตั้งค่าในระบบสคริปต์ได้ทันที)*`);
+-        } else {
+-          emergencyReply(replyToken, "⚠️ คำสั่งนี้ใช้ได้เฉพาะการพิมพ์ภายใน 'ไลน์กลุ่ม' เท่านั้นครับ");
++      if (isTextMsg) {
++        
++        // 🛡️ ป้องกันช่างส่งงานทางแชทส่วนตัว (อนุญาตเฉพาะ Admin)
++        if (source.type === "user" && !isUserAdmin) {
++          if (typeof reply === "function") reply(globalReplyToken, "⚠️ ขออภัยครับ บอทรับลงรายงานเฉพาะใน 'ไลน์กลุ่ม' เท่านั้นครับ 🙏");
++          return ContentService.createTextOutput("OK");
+         }
+-        return;
+-      }
+-    }
+ 
+-    // [GUARD CLAUSE 1]: ตรวจสอบสิทธิ์กลุ่ม (Whitelist Group)
+-    if (source.type === "group" && typeof isAllowedGroup === "function" && !isAllowedGroup(groupId)) {
+-      if (typeof logAuditTrail === "function") {
+-        logAuditTrail(userId, "BLOCKED_GROUP", `Group ID: ${groupId} rejected.`, "REJECT", 1.0, "BLOCK", "บล็อกกลุ่มที่ไม่ได้รับอนุญาต");
+-      }
+-      return;
+-    }
+-
+-    const isUserAdmin = verifyAdminRole(userId);
+-    const props = PropertiesService.getScriptProperties();
+-    const systemStatus = props.getProperty("SYSTEM_STATUS") || "ON";
++        // ⚡ เช็ค State คงค้างด้วย CacheService
++        const cache = CacheService.getScriptCache();
++        let pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
++        let pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
++        let pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+ 
+-    // 📷 ประมวลผลกรณีเป็นรูปภาพ (อัปโหลดบัตรตอก)
+-    if (message && message.type === "image") {
+-      if (typeof logAuditTrail === "function") {
+-        logAuditTrail(userId, "IMAGE_ENTRY", "IMAGE_MESSAGE_ID_" + message.id, "IMAGE", 1.0, "SUBMIT_IMAGE", "พนักงานอัปโหลดรูปภาพบัตรตอก");
+-      }
+-      handleImageProcess(message.id, replyToken, userId);
+-      return;
+-    }
+-
+-    if (!message || message.type !== "text") {
+-      try {
+-        emergencyReply(replyToken, "⚠️ ระบบรองรับเฉพาะข้อความและรูปภาพบัตรตอกเท่านั้นครับ");
+-      } catch(e) {
+-        console.error("Fallback Reply Error: " + e.message);
+-      }
+-      return;
+-    }
+-
+-    const msg = message.text.trim();
+-
+-    // [GUARD CLAUSE 2]: ป้องกันช่างส่งรายงานทางแชทส่วนตัว (อนุญาตเฉพาะแอดมิน)
+-    if (source.type === "user" && !isUserAdmin) {
+-      emergencyReply(replyToken, "⚠️ ขออภัยครับ บอทรับลงรายงานเฉพาะใน 'ไลน์กลุ่ม' เท่านั้นครับ 🙏");
+-      return;
+-    }
+-
+-    // ⚡ ดึงข้อมูลสถานะคงค้าง (State Machine) จากหน่วยความจำ Cache
+-    const cache = CacheService.getScriptCache();
+-    let pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
+-    let pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
+-    let pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+-    let pendingSuggestionsRaw = cache.get(`PENDING_SUGGESTIONS_${userId}`);
+-
+-    // ตัดเครื่องหมาย # ออกเพื่อสกัดเป็นคำสั่ง (Command Parsing) ไว้ที่จุดเริ่มต้น
+-    let commandText = msg;
+-    if (msg.startsWith("#")) {
+-      commandText = msg.substring(1).trim();
+-    }
+-
+-    // กำหนดลอจิกข้อยกเว้น: หากผู้ใช้พิมพ์คำที่ตรงกับปุ่มตอบกลับ ให้ถือว่าไม่ใช่คำสั่งเริ่มใหม่แม้จะมี # นำหน้า
+-    // เปลี่ยนมาใช้ includes() เพื่อความยืดหยุ่นหากผู้ใช้พิมพ์ข้อความนำหน้าหรือต่อท้าย
+-    const isOtReply = commandText.includes("ทำที่เดิม") || commandText.includes("เปลี่ยนไซต์");
+-
+-    // หากขึ้นต้นด้วย # แสดงว่าเริ่มคำสั่งใหม่ (และไม่ใช่การตอบปุ่ม OT) ให้เคลียร์สถานะเดิมทิ้งทั้งหมด
+-    if (msg.startsWith("#") && !isOtReply && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails || pendingSuggestionsRaw)) {
+-      cache.remove(`PENDING_CLOCKIN_${userId}`);
+-      cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+-      cache.remove(`PENDING_OT_DETAILS_${userId}`);
+-      cache.remove(`PENDING_SUGGESTIONS_${userId}`);
+-      
+-      // อัปเดตตัวแปรเพื่อไม่ให้รันในบล็อกถัดไป
+-      pendingClockIn12 = null;
+-      pendingOTConfirm = null;
+-      pendingOTDetails = null;
+-      pendingSuggestionsRaw = null;
+-
+-      if (typeof logAuditTrail === "function") {
+-        logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
+-      }
+-    }
+-
+-    // 🛑 ตรวจสอบการขอยกเลิกกระบวนการ
+-    if (commandText === "ยกเลิก" || commandText === "ถ่ายใหม่" || commandText === "ยกเลิกลงเวลา") {
+-      cache.remove(`PENDING_CLOCKIN_${userId}`);
+-      cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+-      cache.remove(`PENDING_OT_DETAILS_${userId}`);
+-      cache.remove(`PENDING_IMG_CODES_${userId}`);
+-      emergencyReply(replyToken, "🛑 ยกเลิกกระบวนการปัจจุบันเรียบร้อยครับ!");
+-      return;
+-    }
+-
+-    // [STATE]: แจ้งเตือนเซสชันหมดอายุ (Timeout Fallback)
+-    // หากผู้ใช้พิมพ์ปุ่มตอบกลับของ OT แต่ CacheService หมดอายุไปแล้ว (pendingOTConfirm เป็น null)
+-    if (isOtReply && (!pendingOTConfirm || pendingOTConfirm === "CLEARED")) {
+-      console.error(`Cache Timeout: User ${userId} replied '${commandText}' but PENDING_OT_CONFIRM expired.`);
+-      emergencyReply(replyToken, "⚠️ เซสชันการทำรายการโอทีของคุณหมดอายุแล้ว (เกินเวลาที่กำหนด)\nกรุณาเริ่มทำรายการใหม่อีกครั้งครับ");
+-      return;
+-    }
+-
+-    // [STATE]: จัดการการยืนยันรายละเอียดไซต์งานโอที
+-    if (pendingOTDetails && pendingOTDetails !== "CLEARED") {
+-      // ป้องกันการทับซ้อนกับการกดปุ่มเปลี่ยนไซต์อีกรอบ
+-      if (isOtReply) {
+-        emergencyReply(replyToken, "⚠️ คุณได้เลือกเปลี่ยนไซต์ไปแล้ว กรุณาพิมพ์ระบุ 'ไซต์งาน / งานที่ทำ' แทนการกดปุ่มครับ");
+-        return;
+-      }
+-      
+-      try {
+-        const dataToProcess = JSON.parse(pendingOTDetails);
+-        cache.remove(`PENDING_OT_DETAILS_${userId}`);
++        // 🛡️ Strict Text Filtering (Silent Ignore)
++        const isPostback = event.type === "postback";
++        const hasHash = msg.startsWith("#");
++        const hasPendingState = !!(pendingClockIn12 || pendingOTConfirm || pendingOTDetails);
+         
+-        if (typeof logAuditTrail === "function") {
+-          logAuditTrail(userId, "PROCESS_OT_DETAILS", commandText, JSON.stringify(dataToProcess), 1.0, "ACCEPT_DETAILS", "ประมวลผลรายละเอียดไซต์งานโอที");
++        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin) {
++          return ContentService.createTextOutput("OK");
+         }
+-        
+-        finalizeClockInSaving(dataToProcess, userId, replyToken, dataToProcess.checkStatus, commandText, dataToProcess.targetFileId);
+-      } catch (error) {
+-        console.error("Error processing PENDING_OT_DETAILS: " + error.message);
+-        emergencyReply(replyToken, "❌ เกิดข้อผิดพลาดในการประมวลผลรายละเอียดไซต์โอที กรุณาลองใหม่อีกครั้ง");
+-      }
+-      return;
+-    }
+ 
+-    // [STATE]: จัดการการยืนยันทำโอที
+-    if (pendingOTConfirm && pendingOTConfirm !== "CLEARED") {
+-      try {
+-        const dataToProcess = JSON.parse(pendingOTConfirm);
+-        
+-        // ใช้ commandText แทน msg และตรวจจับด้วย includes เพื่อความยืดหยุ่น
+-        if (commandText === "ทำที่เดิม/งานเดิม" || commandText.includes("ทำที่เดิม")) {
++        if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
++          cache.remove(`PENDING_CLOCKIN_${userId}`);
+           cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+-          
+-          if (typeof logAuditTrail === "function") {
+-            logAuditTrail(userId, "PROCESS_OT_CONFIRM", commandText, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
+-          }
+-          
+-          finalizeClockInSaving(dataToProcess, userId, replyToken, dataToProcess.checkStatus, null, dataToProcess.targetFileId);
+-          return;
+-          
+-        } else if (commandText === "เปลี่ยนไซต์/เปลี่ยนงาน" || commandText.includes("เปลี่ยนไซต์")) {
+-          cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+-          cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300); // ตั้งเวลาใหม่ 5 นาที (300 วินาที)
+-          
+-          if (typeof logAuditTrail === "function") {
+-            logAuditTrail(userId, "PROCESS_OT_CONFIRM", commandText, JSON.stringify(dataToProcess), 1.0, "CHANGE_SITE", "ร้องขอเปลี่ยนไซต์ทำโอที");
+-          }
+-          
+-          emergencyReply(replyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
+-          return;
+-          
+-        } else {
+-          // หากพิมพ์อย่างอื่นมาโดยที่ยังไม่กดปุ่ม
+-          emergencyReply(replyToken, "⚠️ กรุณากดเลือกปุ่ม 'ทำที่เดิม/งานเดิม' หรือ 'เปลี่ยนไซต์/เปลี่ยนงาน' เพื่อดำเนินการต่อครับ");
+-          return;
++          cache.remove(`PENDING_OT_DETAILS_${userId}`);
++          if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
++          pendingClockIn12 = null; pendingOTConfirm = null; pendingOTDetails = null;
+         }
+-      } catch (error) {
+-        console.error("Error processing PENDING_OT_CONFIRM: " + error.message);
+-        try {
+-          emergencyReply(replyToken, "❌ เกิดข้อผิดพลาดในการประมวลผลการยืนยันโอที กรุณาลองใหม่อีกครั้ง");
+-        } catch(replyErr) {
+-          console.error("Fallback reply error: " + replyErr.message);
+-        }
+-        return;
+-      }
+-    }
+ 
+-    // [STATE]: ยืนยันการลงเวลาบ่าย (12.00/13.00)
+-    if (pendingClockIn12 && pendingClockIn12 !== "CLEARED") {
+-      if (commandText === "ยืนยันตามเวลาที่แจ้ง" || commandText === "ลงเวลา 13.00 น.") {
+-        processPendingClockIn(commandText, pendingClockIn12, userId, replyToken);
+-        if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", commandText, pendingClockIn12, 1.0, "CONFIRM_12", "ยืนยันเวลาทำงานช่วงบ่าย");
+-        return;
+-      }
+-    }
+-
+-    // --- 👑 หมวดคำสั่งผู้ดูแลระบบ (Admin Only) ---
+-    if (isUserAdmin) {
+-      if (commandText.startsWith("ตั้งค่า")) {
+-        const parts = commandText.replace("ตั้งค่า", "").trim().split("=");
+-        if (parts.length >= 2) {
+-          if (typeof setDynamicConfig === "function") setDynamicConfig(parts[0].trim(), parts.slice(1).join("=").trim());
+-          if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_CONFIG", commandText, parts[0].trim(), 1.0, "SET_CONFIG", "แอดมินเปลี่ยนค่าระบบ");
+-          emergencyReply(replyToken, `⚙️ บันทึกการตั้งค่าสำเร็จ!\n[${parts[0].trim()}] => ${parts.slice(1).join("=").trim()}`);
+-        } else {
+-          emergencyReply(replyToken, `⚠️ ตัวอย่าง: ตั้งค่า FUZZY_THRESHOLD=0.85`);
++        // 1. จัดการ State: ลงรายละเอียดไซต์งานโอที
++        if (pendingOTDetails) {
++          if (msg === "ยกเลิกลงเวลา") {
++            cache.remove(`PENDING_OT_DETAILS_${userId}`);
++            if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
++            return ContentService.createTextOutput("OK");
++          }
++          let dataToProcess = JSON.parse(pendingOTDetails);
++          cache.remove(`PENDING_OT_DETAILS_${userId}`);
++          if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_DETAILS", msg, JSON.stringify(dataToProcess), 1.0, "ACCEPT_DETAILS", "ประมวลผลรายละเอียดไซต์งานโอที");
++          if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, msg);
++          return ContentService.createTextOutput("OK");
+         }
+-        return;
+-      }
+ 
+-      if (commandText === "รายงาน" || commandText === "สร้างรายงาน" || commandText === "report") {
+-        emergencyReply(replyToken, "⏳ กำลังประมวลผลดึงข้อมูลและสร้างรายงาน... รอสักครู่ครับ");
+-        if (typeof generateProjectReportAndNotify === "function") {
+-          const reportStatus = generateProjectReportAndNotify();
+-          if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_REPORT", commandText, "GENERATE", 1.0, "REPORT", "แอดมินสั่งออกรายงานสรุปโครงการ");
+-          emergencyReply(replyToken, reportStatus);
+-        } else {
+-          emergencyReply(replyToken, "❌ ไม่พบระบบสร้างรายงาน (generateProjectReportAndNotify)");
++        // 2. จัดการ State: ยืนยันทำโอที
++        if (pendingOTConfirm) {
++          let dataToProcess = JSON.parse(pendingOTConfirm);
++          if (msg === "ทำที่เดิม/งานเดิม") {
++            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
++            if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, null);
++            return ContentService.createTextOutput("OK");
++          }
++          else if (msg === "เปลี่ยนไซต์/เปลี่ยนงาน") {
++            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
++            cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300);
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "CHANGE_SITE", "ร้องขอเปลี่ยนไซต์ทำโอที");
++            if (typeof reply === "function") reply(globalReplyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
++            return ContentService.createTextOutput("OK");
++          }
++          else if (msg === "ยกเลิกลงเวลา") {
++            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
++            if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
++            return ContentService.createTextOutput("OK");
++          }
+         }
+-        return;
+-      }
+ 
+-      if (commandText.startsWith("กู้คืนระบบ") || commandText.startsWith("rollback")) {
+-        let step = 1;
+-        const parts = commandText.split(" ");
+-        if (parts.length > 1 && !isNaN(parseInt(parts[1], 10))) step = parseInt(parts[1], 10);
+-        if (typeof rollbackLogic === "function") {
+-          const rollbackRes = rollbackLogic(userId, step);
+-          if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_ROLLBACK", commandText, "STEP_" + step, 1.0, "ROLLBACK", "แอดมินสั่งกู้คืนระบบย้อนหลัง");
+-          emergencyReply(replyToken, rollbackRes.success ? rollbackRes.message : rollbackRes.error);
++        // 3. จัดการ State: ลงเวลาช่วงบ่าย (12.00/13.00)
++        if (pendingClockIn12) {
++          if (msg === "ยืนยันตามเวลาที่แจ้ง" || msg === "ลงเวลา 13.00 น.") {
++            if (typeof processPendingClockIn === "function") processPendingClockIn(msg, pendingClockIn12, userId, globalReplyToken);
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "CONFIRM_12", "ยืนยันเวลาทำงานช่วงบ่าย");
++            return ContentService.createTextOutput("OK");
++          }
++          else if (msg === "ยกเลิกลงเวลา") {
++            cache.remove(`PENDING_CLOCKIN_${userId}`);
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "REJECT_12", "ยกเลิกการยืนยันเวลาช่วงบ่าย");
++            if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
++            return ContentService.createTextOutput("OK");
++          }
+         }
+-        return;
+-      }
+-
+-      if (commandText === "เปิดระบบ") {
+-        if (typeof setDynamicConfig === "function") setDynamicConfig("SYSTEM_STATUS", "ON");
+-        else props.setProperty("SYSTEM_STATUS", "ON");
+-        if (typeof logAuditTrail === "function") logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "ON", 1.0, "SYSTEM_ON", "เปิดระบบทำงาน");
+-        emergencyReply(replyToken, "🟢 เปิดระบบการรับรายงานแล้วครับ!");
+-        return;
+-      }
+-
+-      if (commandText === "ปิดระบบ") {
+-        if (typeof setDynamicConfig === "function") setDynamicConfig("SYSTEM_STATUS", "OFF");
+-        else props.setProperty("SYSTEM_STATUS", "OFF");
+-        if (typeof logAuditTrail === "function") logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "OFF", 1.0, "SYSTEM_OFF", "ปิดระบบทำงาน");
+-        emergencyReply(replyToken, "🔴 ปิดระบบเรียบร้อย (บอทจะหยุดรับงานชั่วคราว ยกเว้น Admin)");
+-        return;
+-      }
+ 
+-      if (commandText === "สรุปย้ายแชท") {
+-        const summaryBlueprint = typeof generateHandoverBlueprint === "function" ? generateHandoverBlueprint() : "Blueprint V12 Active";
+-        emergencyReply(replyToken, summaryBlueprint);
+-        return;
+-      }
++        // 🚀 ประมวลผลคำสั่งพิเศษ
++        let commandText = msg;
++        if (msg.startsWith("#")) commandText = msg.substring(1).trim();
+ 
+-      if (commandText === "ทดสอบระบบ" || commandText === "ปิดโหมดทดสอบ") {
+-        handleTestMode(commandText, replyToken);
+-        return;
+-      }
+-    }
+-
+-    if (systemStatus === "OFF" && !isUserAdmin) {
+-      try {
+-        emergencyReply(replyToken, "🔴 ขณะนี้ระบบปิดรับงานชั่วคราวครับ (System Offline)");
+-      } catch(e) {
+-        console.error("Fallback Reply Error: " + e.message);
+-      }
+-      return;
+-    }
++        // --- 👑 หมวดคำสั่ง Admin Only ---
++        if (isUserAdmin) {
++          if (commandText === "#สรุปย้ายแชท") {
++            const summaryBlueprint = typeof generateHandoverBlueprint === "function" ? generateHandoverBlueprint() : "Blueprint V11 Active";
++            if (typeof reply === "function") reply(globalReplyToken, summaryBlueprint);
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText.startsWith("ตั้งค่า")) {
++            const parts = commandText.replace("ตั้งค่า", "").trim().split("=");
++            if (parts.length >= 2) {
++              if (typeof setDynamicConfig === "function") setDynamicConfig(parts[0].trim(), parts.slice(1).join("=").trim());
++              if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_CONFIG", commandText, parts[0].trim(), 1.0, "SET_CONFIG", "แอดมินเปลี่ยนค่าระบบ");
++              if (typeof reply === "function") reply(globalReplyToken, `⚙️ บันทึกการตั้งค่าสำเร็จ!\n[${parts[0].trim()}] => ${parts.slice(1).join("=").trim()}`);
++            } else {
++              if (typeof reply === "function") reply(globalReplyToken, "⚠️ ตัวอย่าง: ตั้งค่า FUZZY_THRESHOLD=0.85");
++            }
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText === "รายงาน" || commandText === "สร้างรายงาน" || commandText === "report") {
++            if (typeof reply === "function") reply(globalReplyToken, "⏳ กำลังประมวลผลดึงข้อมูลและสร้างรายงาน... รอสักครู่ครับ");
++            if (typeof generateProjectReportAndNotify === "function") {
++              const reportStatus = generateProjectReportAndNotify();
++              if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_REPORT", commandText, "GENERATE", 1.0, "REPORT", "แอดมินสั่งออกรายงานสรุปโครงการ");
++              if (typeof reply === "function") reply(globalReplyToken, reportStatus);
++            } else {
++              if (typeof reply === "function") reply(globalReplyToken, "❌ ไม่พบระบบสร้างรายงาน (generateProjectReportAndNotify)");
++            }
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText.startsWith("กู้คืนระบบ") || commandText.startsWith("rollback") && !commandText.startsWith("rollback-code")) {
++            let step = 1;
++            const parts = commandText.split(" ");
++            if (parts.length > 1 && !isNaN(parseInt(parts[1]))) step = parseInt(parts[1]);
++            if (typeof rollbackLogic === "function") {
++              const rollbackRes = rollbackLogic(userId, step);
++              if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_ROLLBACK", commandText, "STEP_" + step, 1.0, "ROLLBACK", "แอดมินสั่งกู้คืนระบบย้อนหลัง");
++              if (typeof reply === "function") reply(globalReplyToken, rollbackRes.success ? rollbackRes.message : rollbackRes.error);
++            } else {
++              if (typeof reply === "function") reply(globalReplyToken, "❌ ไม่พบระบบจัดการตรรกะ (rollbackLogic)");
++            }
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText === "ถ่ายรูปโค้ด" || commandText === "snapshot") {
++            if (typeof createCodeSnapshot === "function") {
++              const snapRes = createCodeSnapshot();
++              if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_SNAPSHOT", commandText, "CREATE_SNAPSHOT", 1.0, "SNAPSHOT", "แอดมินสั่งสร้าง Code Snapshot");
++              if (typeof reply === "function") reply(globalReplyToken, snapRes.success ? snapRes.message : snapRes.error);
++            } else {
++              if (typeof reply === "function") reply(globalReplyToken, "❌ ไม่พบระบบสร้าง Code Snapshot");
++            }
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText.startsWith("กู้คืนโค้ด") || commandText.startsWith("rollback-code")) {
++            let step = 1;
++            const parts = commandText.split(" ");
++            if (parts.length > 1 && !isNaN(parseInt(parts[1]))) step = parseInt(parts[1]);
++            if (typeof rollbackCodeSnapshot === "function") {
++              const rollbackRes = rollbackCodeSnapshot(step);
++              if (typeof logAuditTrail === "function") logAuditTrail(userId, "ADMIN_CODE_ROLLBACK", commandText, "STEP_" + step, 1.0, "CODE_ROLLBACK", "แอดมินสั่งกู้คืนโค้ด");
++              if (typeof reply === "function") reply(globalReplyToken, rollbackRes.success ? rollbackRes.message + "\n\n⚠️ แอดมินต้องไปกด Manage Deployments เพื่อสร้าง New Version ด้วยนะครับ (เนื่องจาก Webhook ไม่ทำงานกับ HEAD)" : rollbackRes.error);
++            } else {
++              if (typeof reply === "function") reply(globalReplyToken, "❌ ไม่พบระบบจัดการกู้คืนโค้ด (rollbackCodeSnapshot)");
++            }
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText === "เปิดระบบ") {
++            if (typeof setDynamicConfig === "function") setDynamicConfig("SYSTEM_STATUS", "ON");
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "ON", 1.0, "SYSTEM_ON", "เปิดระบบทำงาน");
++            if (typeof reply === "function") reply(globalReplyToken, "🟢 เปิดระบบทำงานแล้ว");
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText === "ปิดระบบ") {
++            if (typeof setDynamicConfig === "function") setDynamicConfig("SYSTEM_STATUS", "OFF");
++            if (typeof logAuditTrail === "function") logAuditTrail(userId, "SYSTEM_TOGGLE", msg, "OFF", 1.0, "SYSTEM_OFF", "ปิดระบบทำงาน");
++            if (typeof reply === "function") reply(globalReplyToken, "🔴 ปิดรับการลงเวลาชั่วคราว");
++            return ContentService.createTextOutput("OK");
++          }
++          if (commandText === "ทดสอบระบบ" || commandText === "ปิดโหมดทดสอบ") {
++            if (typeof handleTestMode === "function") handleTestMode(commandText, globalReplyToken);
++            return ContentService.createTextOutput("OK");
++          }
++        }
+ 
+-    // --- 👷 หมวดคำสั่งทั่วไป & ลงเวลาหน้างาน ---
+-    if (commandText === "ยกเลิกรายการล่าสุด" || commandText === "ยกเลิกล่าสุด") {
+-      if (typeof logAuditTrail === "function") logAuditTrail(userId, "USER_UNDO", msg, "UNDO_LAST", 1.0, "UNDO", "ผู้ใช้ขอยกเลิกรายการล่าสุด");
+-      handleUndoLastAction(userId, replyToken);
+-      return;
+-    }
++        if (commandText === "#ใครขาด") {
++          if (typeof handleCheckAbsent === "function") {
++            const tzTodayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy");
++            if (typeof reply === "function") reply(globalReplyToken, handleCheckAbsent(tzTodayStr));
++          }
++          return ContentService.createTextOutput("OK");
++        }
+ 
+-    if (commandText.startsWith("ยกเลิก") && commandText.length > 10 && !commandText.includes("/")) {
+-      handleUndoFromText(commandText.replace("ยกเลิก", "").trim(), replyToken);
+-      return;
+-    }
++        if (status === "OFF" && !isUserAdmin) return ContentService.createTextOutput("Ignored");
+ 
+-    if (commandText.startsWith("ยกเลิก") && commandText.includes("/")) {
+-      const p = commandText.replace("ยกเลิก", "").trim().split(" ");
+-      if (p.length >= 2 && typeof undoLastEntry === "function") {
+-        emergencyReply(replyToken, undoLastEntry(p[0], p[1]));
++        // --- 👷 หมวดคำสั่งทั่วไป & ลงเวลา ---
++        if (commandText === "ยกเลิกรายการล่าสุด" || commandText === "ยกเลิกล่าสุด") {
++          if (typeof logAuditTrail === "function") logAuditTrail(userId, "USER_UNDO", msg, "UNDO_LAST", 1.0, "UNDO", "ผู้ใช้ขอยกเลิกรายการล่าสุด");
++          if (typeof handleUndoLastAction === "function") handleUndoLastAction(userId, globalReplyToken);
++          return ContentService.createTextOutput("OK");
++        }
++        if (commandText.startsWith("ยกเลิก") && commandText.length > 10 && !commandText.includes("/")) {
++          if (typeof handleUndoFromText === "function") handleUndoFromText(commandText.replace("ยกเลิก", "").trim(), globalReplyToken);
++          return ContentService.createTextOutput("OK");
++        }
++        if (commandText.startsWith("ยกเลิก") && commandText.includes("/")) {
++          const p = commandText.replace("ยกเลิก", "").trim().split(" ");
++          if (p.length >= 2 && typeof undoLastEntry === "function" && typeof reply === "function") reply(globalReplyToken, undoLastEntry(p[0], p[1]));
++          return ContentService.createTextOutput("OK");
++        }
++        if (commandText.startsWith("เช็ครายงาน")) {
++          if (typeof handleCheckReport === "function") handleCheckReport(commandText, userId, globalReplyToken);
++          return ContentService.createTextOutput("OK");
++        }
++        if (/^(คู่มือ|วิธีใช้|help|คำสั่ง)/i.test(commandText)) {
++          if (typeof reply === "function") reply(globalReplyToken, "📘 คู่มือคำสั่ง\n1️⃣ ส่งรูปบัตรตอก\n2️⃣ ตามด้วยข้อความ:\n#1/5/69\nสวนหลวง เข้า สวนหลวง\n08.00-17.00\nทั้งหมด 3 คน");
++          return ContentService.createTextOutput("OK");
++        }
++        if (/^(ลา|ขอลา|เช็ค|ดูยอด|ใครขาด|สรุปยอด|ประกาศ:|ลบ|สถานะระบบ)/.test(commandText)) {
++          if (typeof handleCommands === "function") handleCommands(commandText, globalReplyToken, userId);
++          return ContentService.createTextOutput("OK");
++        }
++        
++        // ระบบดึงชื่อจากข้อความ 일반
++        var extractedNames = typeof extractEmployeesFromText === "function" ? extractEmployeesFromText(msg) : [];
++        
++        if (/^\d{1,2}[\/.-]\d{1,2}/.test(commandText) || /^\#\d{1,2}[\/.-]\d{1,2}/.test(msg) || extractedNames.length > 0) {
++          if (typeof logAuditTrail === "function") logAuditTrail(userId, "CLOCKIN_ENTRY", msg, "RAW_TEXT", 1.0, "SUBMIT", "พนักงานส่งข้อความบันทึกเวลารูปแบบข้อความทั่วไป");
++          if (typeof handleClockIn === "function") handleClockIn(msg, userId, globalReplyToken);
++          return ContentService.createTextOutput("OK");
++        }
++        
++        return ContentService.createTextOutput("Ignored");
++        
++      } else if (event.message.type === "image") {
++        if (typeof logAuditTrail === "function") logAuditTrail(userId, "IMAGE_ENTRY", "IMAGE_MESSAGE_ID_" + event.message.id, "IMAGE", 1.0, "SUBMIT_IMAGE", "พนักงานอัปโหลดรูปภาพบัตรตอก");
++        if (typeof handleImageProcess === "function") handleImageProcess(event.message.id, globalReplyToken, userId);
+       }
+-      return;
+-    }
+-
+-    if (commandText.startsWith("เช็ครายงาน") || commandText.startsWith("เช็ค") || commandText.startsWith("ตรวจสอบ") || commandText.startsWith("/check")) {
+-      handleCheckReport(commandText, userId, replyToken);
+-      return;
+-    }
+-
+-    if (/^(คู่มือ|วิธีใช้|help|คำสั่ง)/i.test(commandText)) {
+-      emergencyReply(replyToken, "📘 คู่มือคำสั่ง\n1️⃣ ส่งรูปบัตรตอก\n2️⃣ ตามด้วยข้อความ:\n#1/5/69\nสวนหลวง เข้า สวนหลวง\n08.00-17.00\nทั้งหมด 3 คน");
+-      return;
+-    }
+-
+-    if (/^(ลา|ขอลา|เช็ค|ดูยอด|ใครขาด|สรุปยอด|ประกาศ:|ลบ|สถานะระบบ)/.test(commandText)) {
+-      if (commandText === "ใครขาด" && typeof handleCheckAbsent === "function") {
+-        const tzTodayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "dd/MM/yyyy");
+-        emergencyReply(replyToken, handleCheckAbsent(tzTodayStr));
+-        return;
++    } catch (err) {
++      if (typeof logAuditTrail === "function") logAuditTrail("SYSTEM_ERROR", "RUNTIME_EXCEPTION", e && e.postData ? e.postData.contents : "", "", 0.0, "ERROR", err.message);
++      if (globalReplyToken && typeof reply === "function") {
++        reply(globalReplyToken, "🔴 ระบบเกิดปัญหาภายใน: " + err.message + "\n(กรุณาแจ้งแอดมินให้ตรวจสอบโค้ดจุดนี้)");
+       }
+-      handleCommands(commandText, replyToken, userId);
+-      return;
++      return ContentService.createTextOutput("Error: " + err.message);
+     }
+-
+-    // 📝 ประมวลผลข้อความเพื่อบันทึกเวลาทำงาน
+-    // แปลงพ.ศ. เป็น ค.ศ. ก่อนส่งเข้า handleClockIn
+-    let convertedMessage = msg.replace(/(25\d{2})/g, function(match) {
+-      return (parseInt(match, 10) - 543).toString();
+-    });
+-
+-    if (typeof logAuditTrail === "function") {
+-      logAuditTrail(userId, "CLOCKIN_ENTRY", msg, "RAW_TEXT", 1.0, "SUBMIT", "พนักงานส่งข้อความบันทึกเวลารูปแบบข้อความทั่วไป");
+-    }
+-    handleClockIn(convertedMessage, userId, replyToken);
+-    return;
+-
+-  } catch (err) {
+-    console.error("handleLineWebhook Error: " + err.message);
+-    throw err; // ส่งต่อให้ doPost ดักจับเพื่อคืนค่า Lock
+   }
++  return ContentService.createTextOutput("OK");
+ }
+ 
+-/**
+- * 👷 Core Logic: จัดการถอดรหัสข้อความและบันทึกเวลาทำงานลงฐานข้อมูลประจำวัน
+- * หน้าที่: ตรวจสอบความถูกต้องของข้อมูล (Regex & AI) และเชื่อมโยงเงื่อนไข OT
+- * @param {String} msg - ข้อความที่ผู้ใช้งานส่งมา (อาจมีหรือไม่มี # นำหน้า)
+- * @param {String} userId - รหัสประจำตัวผู้ใช้งาน
+- * @param {String} token - รหัสสำหรับตอบกลับแชท
+- */
+-function handleClockIn(msg, userId, token) {
+-  let data = null;
+-  let cache = null;
+-  let pendingCodes = null;
+ 
++function handleClockIn(msg, userId, token) {
++  // 🚨 ถูกล็อกมาก่อนแล้วใน doPost(e) ไม่จำเป็นต้องล็อกซ้ำ ป้องกัน Deadlock
+   try {
+-    const cleanedMsg = typeof cleanText === "function" ? cleanText(msg) : msg.trim();
+-    cache = CacheService.getScriptCache();
+-    pendingCodes = cache.get(`PENDING_IMG_CODES_${userId}`);
+-
+-    // 1. ลองแกะโครงสร้างข้อความด้วย Regular Expression แมนนวลก่อนเพื่อประหยัดทรัพยากร
+-    if (typeof parseComplexMessage === "function") {
+-      data = parseComplexMessage(cleanedMsg);
+-    }
++    let data;
++    let cache;
++    let pendingCodes;
+ 
+-    // ตรวจจับกรณีช่างระบุ OT เที่ยงแต่ Regex จับไม่ได้
+-    const isOtNoonMissed = /(OT|โอที)\s*เที่ยง/i.test(cleanedMsg) && (!data || !data.employees || !data.employees.some(emp => emp.has_ot_noon));
++    // 2. ประมวลผลข้อความเบื้องต้น
++    try {
++      data = parseComplexMessage(msg);
++      cache = CacheService.getScriptCache();
++      pendingCodes = cache.get(`PENDING_IMG_CODES_${userId}`);
+ 
+-    // 🧠 ระบบ Hybrid Fallback: ถ้า Regex อ่านไม่ออก หรือตกหล่น ให้โยนไปให้ AI ช่วยแกะ
+-    if (!data || !data.date || !data.default_site || isOtNoonMissed) {
+-      if (typeof processMessageWithAI === "function") {
+-        data = processMessageWithAI(cleanedMsg);
++      // 🧠 ระบบ Hybrid Fallback: ถ้า Regex อ่านไม่ออก ให้โยนไปให้ AI ช่วยแกะ
++      const isOtNoonMissed = /(OT|โอที)\s*เที่ยง/i.test(msg) && (!data || !data.employees || !data.employees.some(emp => emp.has_ot_noon));
++      
++      if (!data || !data.date || !data.default_site || isOtNoonMissed) {
++        // ตัด async/await ออก เพื่อให้รันใน GAS ได้อย่างถูกต้องและไม่เกิด Syntax Error
++        data = processMessageWithAI(msg); 
+         if (data) {
+-          // ดึงข้อมูลจำนวนพนักงานทั้งหมดจากข้อความ
+-          const countMatch = cleanedMsg.match(/ทั้งหมด\s*(\d+)\s*คน/);
++          const countMatch = msg.match(/ทั้งหมด\s*(\d+)\s*คน/);
+           if (countMatch) data.expected_count = parseInt(countMatch[1], 10);
+-
+-          // ตรวจสอบ OT เที่ยงซ้ำเพื่อความแม่นยำ
+-          const matchOT = cleanedMsg.match(/(OT|โอที)\s*เที่ยง\s*(?:(\d{1,2}[.:]\d{2})\s*[-ถึง]\s*(\d{1,2}[.:]\d{2}))?/i);
++          
++          const matchOT = msg.match(/(OT|โอที)\s*เที่ยง\s*(?:(\d{1,2}[.:]\d{2})\s*[-ถึง]\s*(\d{1,2}[.:]\d{2}))?/i);
+           if (matchOT) {
+             data.has_ot_noon = true;
+             if (matchOT[2] && matchOT[3]) {
+@@ -463,793 +403,278 @@ function handleClockIn(msg, userId, token) {
+             }
+           }
+         }
+-      } else {
+-        console.error("AI Fallback function missing: processMessageWithAI");
+       }
++    } catch (err) {
++      logErrorToSheet(null, msg, "Error parsing message: " + err.message);
++      reply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบครับ");
++      return; 
+     }
+-  } catch (err) {
+-    if (typeof logErrorToSheet === "function") logErrorToSheet(null, msg, "Error parsing message: " + err.message);
+-    emergencyReply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบตามคู่มือครับ");
+-    return;
+-  }
+ 
+-  // 3. จัดการข้อมูลกรณีส่งรูปภาพมาก่อนหน้า (จาก Cache)
+-  if (pendingCodes && data) {
+-    let empList = [];
+-    if (typeof getEmployeesByCodes === "function") {
+-      empList = getEmployeesByCodes(JSON.parse(pendingCodes));
+-    }
+-    
+-    // ตรวจสอบความถูกต้องของจำนวนคน
+-    if (data.expected_count && data.expected_count > 0 && empList.length !== data.expected_count) {
+-      emergencyReply(token, `⚠️ จำนวนพนักงานไม่ตรงกัน!\nคุณพิมพ์แจ้ง: "${data.expected_count} คน"\nระบบอ่านจากรูปได้: "${empList.length} คน"\n👉 รบกวนตรวจสอบและอัปโหลดรูปใหม่ครับ`);
+-      cache.remove(`PENDING_IMG_CODES_${userId}`);
+-      return;
++    // 3. จัดการข้อมูลกรณีส่งรูปภาพมาก่อนหน้า (จาก Cache)
++    if (pendingCodes && data) {
++      const empList = getEmployeesByCodes(JSON.parse(pendingCodes));
++      if (data.expected_count && data.expected_count > 0 && empList.length !== data.expected_count) {
++        reply(token, `⚠️ จำนวนพนักงานไม่ตรงกัน!\nคุณพิมพ์แจ้ง: "${data.expected_count} คน"\nระบบอ่านจากรูปได้: "${empList.length} คน"\n👉 รบกวนตรวจสอบและส่งรูปใหม่ครับ`);
++        cache.remove(`PENDING_IMG_CODES_${userId}`);
++        return;
++      }
++      if (empList.length > 0) {
++        data.employees = empList.map(e => ({
++          firstname: e.firstname,
++          lastname: e.lastname,
++          task: data.has_ot_noon ? "ทำงาน (OTเที่ยง)" : "ทำงาน",
++          has_ot_noon: data.has_ot_noon || false,
++          ot_noon_in: data.ot_noon_in || "12.00",
++          ot_noon_out: data.ot_noon_out || "13.00",
++          accom: data.default_Accom || ""
++        }));
++        cache.remove(`PENDING_IMG_CODES_${userId}`);
++      }
+     }
+ 
+-    if (empList.length > 0) {
+-      data.employees = empList.map(e => ({
+-        firstname: e.firstname,
+-        lastname: e.lastname,
+-        task: data.has_ot_noon ? "ทำงาน (OTเที่ยง)" : "ทำงาน",
+-        has_ot_noon: data.has_ot_noon || false,
+-        ot_noon_in: data.ot_noon_in || "12.00",
+-        ot_noon_out: data.ot_noon_out || "13.00",
+-        accom: data.default_Accom || ""
+-      }));
+-      cache.remove(`PENDING_IMG_CODES_${userId}`);
++    // 4. ตรวจสอบความสมบูรณ์ของข้อมูลขั้นสุดท้าย
++    if (!data || !data.date || !data.employees || data.employees.length === 0) {
++      logErrorToSheet(getTargetFileIdByDate(null), msg, "❌ ไม่พบรายชื่อพนักงาน");
++      reply(token, "❌ ข้อมูลไม่ครบครับ!\nหากต้องการลงเวลาโดยไม่พิมพ์ชื่อ โปรดส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ");
++      return;
+     }
+-  }
+ 
+-  // 4. ตรวจสอบความสมบูรณ์ของข้อมูลขั้นสุดท้าย
+-  if (!data || !data.date || !data.employees || data.employees.length === 0) {
+-    let targetFileId = typeof getTargetFileIdByDate === "function" ? getTargetFileIdByDate(null) : null;
+-    if (typeof logErrorToSheet === "function") {
+-      logErrorToSheet(targetFileId, msg, "❌ ไม่พบรายชื่อพนักงาน");
++    data.original_msg = msg;
++    const check = checkDate(data.date);
++    
++    // 5. ดึงลิสต์ Admin อย่างปลอดภัย (ป้องกัน Error หากไม่มีค่า)
++    const adminIdStr = PropertiesService.getScriptProperties().getProperty("ADMIN_LINE_IDS") || "";
++    const adminArray = adminIdStr.split(",").map(id => id.trim());
++    const isUserAdmin = adminArray.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
++
++    // 6. เช็คการบล็อกวันที่ (Admin สามารถทะลุได้)
++    if (check.status === "BLOCK" && !isUserAdmin) {
++      reply(token, `⛔ ${check.msg}`);
++      return; 
+     }
+-    emergencyReply(token, "❌ ข้อมูลไม่ครบถ้วนครับ!\nหากต้องการลงเวลาโดยไม่พิมพ์ชื่อ โปรดส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ");
+-    return;
+-  }
+ 
+-  data.original_msg = msg;
++    // 7. ดำเนินการบันทึกข้อมูลและตรวจสอบ OT (ลบ await ออกเพื่อให้เป็น Synchronous)
++    checkOTAndProceed(data, userId, token, check, getTargetFileIdByDate(data.date));
+ 
+-  // 5. สแกนตรวจสอบเงื่อนไขล็อกวันเวลาส่งย้อนหลัง (Validation)
+-  let check = { status: "OK", msg: "" };
+-  if (typeof checkDateLogic === "function") {
+-    check = checkDateLogic(data.date);
+-  } else {
+-    // Basic validation fallback
+-    const entryDateParts = data.date.split(/[\/\-.]/);
+-    if (entryDateParts.length >= 3) {
+-      let entryYear = parseInt(entryDateParts[2], 10);
+-      entryYear = entryYear < 100 ? 2000 + entryYear : entryYear;
+-      entryYear = entryYear > 2400 ? entryYear - 543 : entryYear;
+-      
+-      const entryDate = new Date(entryYear, parseInt(entryDateParts[1], 10) - 1, parseInt(entryDateParts[0], 10));
+-      entryDate.setHours(0, 0, 0, 0);
+-      
+-      const today = new Date();
+-      today.setHours(0, 0, 0, 0);
+-      
+-      const diffDays = Math.floor((today.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
+-      const limit = parseInt(PropertiesService.getScriptProperties().getProperty("BACKDATE_LIMIT_DAYS") || "2", 10);
++    // 8. 🎯 ส่งข้อความยืนยันการบันทึกแบบแสดงรายชื่อ
++    if (typeof formatResponse === "function") {
++      const info = {
++        date: data.date,
++        time: (data.time_start && data.time_end) ? `${data.time_start}-${data.time_end}` : "ตามเวลาปกติ",
++        site: data.default_site,
++        // ใช้ Optional Chaining (?.) เพื่อป้องกัน Error หาก undefined
++        accom: data.employees[0]?.accom || data.default_Accom || "ไม่ได้ระบุ"
++      };
+       
+-      if (diffDays > limit) {
+-        check = { status: "BLOCK", msg: `ห้ามส่งข้อมูลย้อนหลัง ${limit} วันขึ้นไป` };
+-      } else if (diffDays > 0) {
+-        check = { status: "WARNING", msg: `ส่งข้อมูลย้อนหลัง ${diffDays} วัน` };
+-      }
+-    }
+-  }
+-
+-  const isUserAdmin = verifyAdminRole(userId);
+-
+-  // 6. เช็คการบล็อกวันที่ (Admin สามารถส่งย้อนหลังได้)
+-  if (check.status === "BLOCK" && !isUserAdmin) {
+-    emergencyReply(token, `⛔ บันทึกไม่ได้: ${check.msg}\n(การส่งรายงานเวลางานย้อนหลัง ถูกจำกัดสิทธิ์ให้แก้ไขได้เฉพาะแอดมินเท่านั้นครับ)`);
+-    return;
+-  }
+-  
+-  data.checkStatus = check;
+-
+-  let targetFileId = null;
+-  if (typeof getTargetFileIdByDate === "function") {
+-    targetFileId = getTargetFileIdByDate(data.date);
+-  }
+-
+-  // 7. สแกนตรวจสอบเวลาเข้างาน กรณีช่างเข้างานช่วงเวลาเที่ยงวัน (สลับกะ/ลงเวลาครึ่งวันหลัง)
+-  if (data.time_start) {
+-    const startTimeStr = data.time_start.toString();
+-    const startHour = parseInt(startTimeStr.split('.')[0], 10);
+-    if (startHour === 12) {
+-        data.targetFileId = targetFileId;
+-        cache.put(`PENDING_CLOCKIN_${userId}`, JSON.stringify(data), 300);
+-        replyWithButtons(token, `ลงข้อมูลตามเวลาเข้าจริง (${startTimeStr} น.) หรือต้องการปัดเป็นเวลา 13.00 น. ครับ?`, ["ยืนยันตามเวลาที่แจ้ง", "ลงเวลา 13.00 น.", "ยกเลิกลงเวลา"]);
+-        return;
++      const finalMsg = formatResponse(data.employees, info);
++      reply(token, finalMsg);
+     }
+-  }
+ 
+-  // 8. ส่งเข้าสู่ด่านตรวจสอบโอที (Overtime Mapping Control)
+-  if (typeof checkOTAndProceed === "function") {
+-    checkOTAndProceed(data, userId, token, check, targetFileId);
+-  } else {
+-    // หากไม่มีฟังก์ชันให้บันทึกตรงเลย
+-    finalizeClockInSaving(data, userId, token, check, null, targetFileId);
++  } catch (err) {
++    logErrorToSheet(null, msg, "Critical Error HandleClockIn: " + err.message);
++    reply(token, "🔴 ระบบขัดข้อง กรุณาแจ้ง Admin ครับ");
+   }
+ }
+ 
+-/**
+- * หน้าที่: ตรวจสอบเงื่อนไขการทำโอทีและส่งปุ่มยืนยัน หรือเข้าสู่ขั้นตอนบันทึกโดยตรง (Synchronous)
+- * @param {Object} dataToProcess - ข้อมูลลงเวลา
+- * @param {String} userId - รหัสผู้ใช้ LINE
+- * @param {String} token - โทเคนสำหรับตอบกลับ
+- * @param {Object} check - สถานะการตรวจสอบวันที่
+- * @param {String|null} targetFileId - ไอดีไฟล์ Spreadsheet ปลายทาง
+- */
+-function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
+-  try {
+-    const toMins = function(t) { 
+-      if (!t) return 0; 
+-      const parts = t.toString().replace('.', ':').split(':'); 
+-      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0); 
+-    };
+-    
+-    const sMins = toMins(dataToProcess.time_start);
+-    let eMins = toMins(dataToProcess.time_end);
+-    let hasOT = false;
+-
+-    if (eMins > 0) {
+-      if (eMins < sMins) eMins += 24 * 60; // ป้องกันกรณีเข้างานเย็น เลิกเช้าของอีกวัน
+-      let otMins = 0;
+-      
+-      // กะเช้าก่อน 08.00 น. (480 นาที)
+-      if (sMins < 480) {
+-        otMins += (Math.min(eMins, 480) - sMins);
+-      }
+-      // กะเย็นหลัง 17.00 น. (1020 นาที)
+-      if (eMins > 1020) {
+-        otMins += (eMins - Math.max(sMins, 1020));
+-      }
+-
+-      // OT พักเที่ยง
+-      let hasNoonOt = false;
+-      let noonOtMins = 0;
+-      if (dataToProcess.employees && dataToProcess.employees.length > 0) {
+-        dataToProcess.employees.forEach(function(emp) {
+-          if (emp.has_ot_noon) {
+-            hasNoonOt = true;
+-            noonOtMins = Math.max(noonOtMins, toMins(emp.ot_noon_out || "13.00") - toMins(emp.ot_noon_in || "12.00"));
+-          }
+-        });
++async function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
++  const toMins = (t) => { if (!t) return 0; const parts = t.toString().replace('.', ':').split(':'); return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0); };
++  const sMins = toMins(dataToProcess.time_start);
++  let eMins = toMins(dataToProcess.time_end);
++  let hasOT = false;
++
++  if (eMins > 0) {
++    if (eMins < sMins) eMins += 24 * 60;
++    let otMins = 0;
++    if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
++    if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
++
++    let hasNoonOt = false;
++    let noonOtMins = 0;
++    dataToProcess.employees.forEach(emp => {
++      if (emp.has_ot_noon) {
++        hasNoonOt = true;
++        noonOtMins = Math.max(noonOtMins, toMins(emp.ot_noon_out || "13.00") - toMins(emp.ot_noon_in || "12.00"));
+       }
+-      
+-      if (hasNoonOt) {
+-        otMins += noonOtMins;
+-      }
+-      
+-      // ฟังก์ชัน Pooling: หักเวลา OT ไปโปะเวลาปกติให้ครบ 8 ชม. (หากมีการตั้งค่า)
+-      const nIn = Math.max(sMins, 480); 
+-      const nOut = Math.min(eMins, 1020);
+-      let normMins = Math.max(0, nOut - nIn);
+-      if (nIn <= 720 && nOut >= 780) normMins -= 60; // หักพักเที่ยง 1 ชม.
+-
+-      let gap = 480 - normMins; // ขาดอีกกี่นาทีถึงจะครบ 8 ชม. (480 นาที)
+-      if (gap > 0 && otMins > 0) {
+-        otMins -= Math.min(gap, otMins); // นำโอทีมาโปะให้
+-      }
+-
+-      if (otMins > 0) {
+-        hasOT = true;
+-      }
+-    }
++    });
++    if (hasNoonOt) otMins += noonOtMins;
++    if (otMins > 0) hasOT = true;
++  }
+ 
+-    if (hasOT) {
+-      dataToProcess.checkStatus = check;
+-      dataToProcess.targetFileId = targetFileId;
+-      
+-      const cache = CacheService.getScriptCache();
+-      cache.put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 300);
+-      
+-      replyWithButtons(token, `ตรวจพบการทำ OT\n\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
+-    } else {
+-      finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
+-    }
+-  } catch (err) {
+-    console.error("checkOTAndProceed Error: " + err.message);
+-    emergencyReply(token, "❌ ขัดข้องระหว่างตรวจสอบโอที กรุณาลองใหม่ครับ");
++  if (hasOT) {
++    dataToProcess.checkStatus = check;
++    CacheService.getScriptCache().put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 300);
++    replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
++  } else {
++    await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
+   }
+ }
+ 
+-/**
+- * หน้าที่: ประมวลผลสถานะยืนยันช่วงเวลาบ่ายที่ค้างในระบบคิว
+- * @param {String} answer - คำตอบจากปุ่ม
+- * @param {String} pendingDataStr - JSON ข้อมูลที่ค้างในคิว
+- * @param {String} userId - ไอดีผู้ใช้งาน
+- * @param {String} token - โทเคนตอบกลับ
+- */
+-function processPendingClockIn(answer, pendingDataStr, userId, token) {
+-  const cache = CacheService.getScriptCache();
++async function processPendingClockIn(answer, pendingDataStr, userId, token) {
+   try {
+     let dataToProcess = JSON.parse(pendingDataStr);
+     if (answer === "ลงเวลา 13.00 น.") dataToProcess.time_start = "13.00";
+-    cache.remove(`PENDING_CLOCKIN_${userId}`);
+-    checkOTAndProceed(dataToProcess, userId, token, dataToProcess.checkStatus, dataToProcess.targetFileId);
++    CacheService.getScriptCache().remove(`PENDING_CLOCKIN_${userId}`);
++    await checkOTAndProceed(dataToProcess, userId, token, dataToProcess.checkStatus, null);
+   } catch (e) {
+-    cache.remove(`PENDING_CLOCKIN_${userId}`);
+-    emergencyReply(token, "❌ ข้อมูลหมดอายุหรือเกิดข้อผิดพลาด กรุณาส่งรายการลงเวลามาใหม่อีกครั้งครับ");
++    CacheService.getScriptCache().remove(`PENDING_CLOCKIN_${userId}`);
++    reply(token, "❌ ข้อมูลหมดอายุครับ");
+   }
+ }
+ 
+-/**
+- * หน้าที่: บันทึกข้อมูลที่สมบูรณ์แล้วลง Spreadsheet และจัดรูปแบบข้อความสรุปผลลัพธ์เพื่อส่งกลับ (Synchronous)
+- * @param {Object} data - ข้อมูลพนักงาน การลงเวลา และสถานที่ทำงาน
+- * @param {String} userId - รหัสผู้ส่ง
+- * @param {String} token - รหัสสำหรับตอบกลับข้อความ
+- * @param {Object} check - สถานะการตรวจสอบวันที่
+- * @param {String|null} customOt - รายละเอียดไซต์งานหรือลักษณะงาน OT (หากมีการเปลี่ยนแปลง)
+- * @param {String} targetId - รหัสเอกสารรายเดือนที่ต้องบันทึก
+- */
+-function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
+-  try {
+-    const props = PropertiesService.getScriptProperties();
+-    const isTesting = props.getProperty("IS_TESTING") === "TRUE";
+-    
+-    if (!data || !data.date) { 
+-      emergencyReply(token, "❌ ข้อมูลสูญหายระหว่างทำรายการ กรุณาส่งข้อมูลเพื่อลงเวลาใหม่อีกครั้งครับ"); 
+-      return; 
+-    }
+-    
+-    if (!targetId) {
+-      if (typeof getTargetFileIdByDate === "function") {
+-        targetId = getTargetFileIdByDate(data.date);
+-      }
+-    }
+-    
+-    if (!targetId) { 
+-      emergencyReply(token, "❌ ไม่พบไฟล์ Spreadsheet สำหรับเดือนนี้"); 
+-      return; 
+-    }
++async function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
++  const isTesting = PropertiesService.getScriptProperties().getProperty("IS_TESTING") === "TRUE";
++  if (!targetId) targetId = getTargetFileIdByDate(data.date);
++  if (!targetId) { reply(token, "❌ ไม่พบไฟล์สำหรับเดือนนี้"); return; }
+ 
+-    let writeRes = { count: 0, errors: [], accom: "ไม่ได้ระบุ" };
+-    
+-    // 🚀 เรียกใช้งาน Batch Writer เพื่อความรวดเร็วและลดภาระ I/O
+-    if (typeof writeToDailySheetBatch === 'function') {
+-      writeRes = writeToDailySheetBatch(data, userId, targetId);
+-    } else if (typeof writeToDailySheet === 'function') {
+-      writeRes = writeToDailySheet(data, userId, targetId);
+-    }
++  // 🚀 เรียกใช้ writeToDailySheetBatch (เซฟแบบกลุ่มที่เสถียรที่สุด)
++  const writeRes = typeof writeToDailySheetBatch === 'function'
++    ? writeToDailySheetBatch(data, userId, targetId)
++    : writeToDailySheet(data, userId, targetId); 
+ 
+-    // --- ส่วนประมวลผล OT ที่ระบุใหม่ (Custom OT) ---
+-    let customOtSite = null; 
+-    let customOtTask = null;
+-    
+-    if (customOt && writeRes.count > 0) {
+-      const parts = customOt.split('/');
+-      customOtSite = parts[0] ? parts[0].trim() : data.default_site;
+-      customOtTask = parts[1] ? parts[1].trim() : "ทำ OT";
+-
+-      try {
+-        const ss = writeRes.spreadsheet || (typeof getCachedSpreadsheet === "function" ? getCachedSpreadsheet(targetId) : SpreadsheetApp.openById(targetId));
+-        let targetSheetName = data.date;
+-        if (typeof parseThaiDate === "function") {
+-          targetSheetName = parseThaiDate(data.date);
+-        }
+-        
+-        let sheet = ss.getSheetByName(targetSheetName);
+-        
+-        // Hotfix: ค้นหาชีตแบบทนทานต่อช่องว่างที่ผิดพลาด (Trim Spaces)
+-        if (!sheet) {
+-          const cleanTarget = targetSheetName.replace(/\s+/g, "");
+-          const sheets = ss.getSheets();
+-          for (let i = 0; i < sheets.length; i++) {
+-            if (sheets[i].getName().replace(/\s+/g, "") === cleanTarget) { 
+-              sheet = sheets[i]; 
+-              break; 
+-            }
+-          }
+-        }
++  let customOtSite = null; let customOtTask = null;
++  if (customOt && writeRes.count > 0) {
++    let parts = customOt.split('/');
++    customOtSite = parts[0] ? parts[0].trim() : data.default_site;
++    customOtTask = parts[1] ? parts[1].trim() : "ทำ OT";
+ 
+-        if (sheet) {
+-          const startRowConfig = parseInt(props.getProperty("START_ROW") || "3", 10);
+-          // ดึงเฉพาะคอลัมน์ D และ E (ชื่อ-นามสกุล)
+-          const dbData = sheet.getRange(startRowConfig, 4, Math.max(1, sheet.getLastRow() - startRowConfig + 1), 2).getValues();
+-          
+-          data.employees.forEach(function(emp) {
+-            const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
+-            for (let i = 0; i < dbData.length; i++) {
+-              const dbName = typeof normalize === 'function' ? normalize(dbData[i][0]) : dbData[i][0];
+-              if (dbName === inputName) {
+-                const targetRow = i + startRowConfig;
+-                // อัปเดตคอลัมน์ 9 (OT Site) และ 10 (OT Task)
+-                sheet.getRange(targetRow, 9).setValue(customOtSite);
+-                sheet.getRange(targetRow, 10).setValue(customOtTask);
+-                break;
+-              }
+-            }
+-          });
++    try {
++      const ss = SpreadsheetApp.openById(targetId);
++      const targetSheetName = parseThaiDate(data.date);
++      let sheet = ss.getSheetByName(targetSheetName);
++      
++      // Hotfix ค้นหาชีตแบบทนทานช่องว่าง
++      if (!sheet) {
++        const cleanTarget = targetSheetName.replace(/\s+/g, "");
++        const sheets = ss.getSheets();
++        for (let i = 0; i < sheets.length; i++) {
++          if (sheets[i].getName().replace(/\s+/g, "") === cleanTarget) { sheet = sheets[i]; break; }
+         }
+-      } catch (e) { 
+-        console.error("Custom OT error: " + e.message); 
+       }
+-    }
+ 
+-    // --- จัดเตรียมข้อความแจ้งเตือน (Warning & Errors) ---
+-    let txt = (check && check.status === "WARNING") ? `⚠️ ${check.msg}\n` : "";
+-    if (writeRes.errors && writeRes.errors.length > 0) {
+-      txt += `⚠️ หาชื่อไม่พบ: ${writeRes.errors.join(', ')}\n`;
+-    }
+-    
+-    if (txt !== "" || !writeRes || writeRes.count === 0) {
+-      if (typeof logErrorToSheet === "function") {
+-        logErrorToSheet(targetId, data.original_msg || "ไม่มีข้อความตั้งต้น", txt || "บันทึกไม่ได้ เนื่องจากไม่พบพนักงานในระบบ");
+-      }
+-    }
+-
+-    // --- สร้างข้อความสรุปผลเพื่อส่งให้ผู้ใช้งาน ---
+-    const countValue = writeRes ? writeRes.count : 0;
+-    let timeStatus = "";
+-    if (!data.time_end || data.time_end === "") {
+-        timeStatus = `(ลงเวลาเข้า: ${data.time_start})`; 
+-    } else {
+-        const toMins = (t) => {
+-            if (!t) return 0;
+-            const parts = t.toString().replace('.', ':').split(':');
+-            return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+-        };
+-        
+-        const sMins = toMins(data.time_start);
+-        let eMins = toMins(data.time_end);
+-        if (eMins < sMins) eMins += 24 * 60; 
+-        
+-        let otMins = 0; let normMins = 0;
+-        if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
+-        
+-        const nIn = Math.max(sMins, 480); const nOut = Math.min(eMins, 1020);
+-        normMins = Math.max(0, nOut - nIn);
+-        if (nIn <= 720 && nOut >= 780) normMins -= 60; 
+-        if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
+-        
+-        let hasNoonOt = false; let noonOtMins = 0;
+-        if (data.employees) {
+-            data.employees.forEach(emp => {
+-                if (emp.has_ot_noon) {
+-                    hasNoonOt = true;
+-                    let mIn = toMins(emp.ot_noon_in || "12.00");
+-                    let mOut = toMins(emp.ot_noon_out || "13.00");
+-                    noonOtMins = Math.max(noonOtMins, mOut - mIn);
+-                }
+-            });
+-        }
+-        if (hasNoonOt) otMins += noonOtMins;
++      if (sheet) {
++        // 🛠️ แปลงค่า START_ROW ให้เป็น Number เสมอกันบั๊กคำนวณแถวเพี้ยน
++        const startRow = parseInt(getDynamicConfig("START_ROW"), 10) || 3;
++        const dbData = sheet.getRange(startRow, 4, Math.max(1, sheet.getLastRow() - startRow + 1), 2).getValues();
+         
+-        const normHr = parseFloat((normMins / 60).toFixed(2));
+-        const otHr = parseFloat((otMins / 60).toFixed(2));
+-        
+-        let otText = otHr > 0 ? `+${otHr}ชม.` : "";
+-        timeStatus = `(เวลา: ${data.time_start}-${data.time_end}) ${normHr} ชม.${otText}`;
+-    }
+-
+-    let displaySite = data.default_site; 
+-    if (customOtSite) displaySite += `\n[ไซต์ OT: ${customOtSite} | งาน OT: ${customOtTask}]`;
+-    const accomText = data.default_Accom || (writeRes && writeRes.accom) || 'ไม่ได้ระบุ';
+-
+-    // ตรวจสอบ Error และประกอบร่างข้อความส่งกลับ
+-    if (writeRes && writeRes.errors && writeRes.errors.length > 0) txt += `⚠️ หาชื่อไม่พบ: ${writeRes.errors.join(', ')}\n`;
+-
+-    const finalMessage = `${(writeRes && writeRes.count === 0) || countValue === 0 ? "❌ ไม่พบข้อมูล" : `✅ บันทึกสำเร็จ ${countValue} คน`}
+-${data.date ? `📅 วันที่: ${data.date}` : ""}
+-${timeStatus}
+-ไซต์: ${displaySite}
+-[ที่พัก: ${accomText}]
+-${isTesting ? "🧪 [โหมดทดสอบ]" : ""}
+-${txt ? txt : ""}📌 โปรดตรวจเช็คความถูกต้อง หากผิดพลาดแจ้งแอดมินทันที`;
+-
+-    // ส่งข้อความกลับเข้ากลุ่ม
+-    emergencyReply(token, finalMessage.trim());
+-
+-  } catch (err) {
+-    console.error("finalizeClockInSaving Error: " + err.message);
+-    emergencyReply(token, "🔴 ข้อผิดพลาดขณะบันทึกข้อมูล กรุณาแจ้ง Admin ครับ\n\nรายละเอียด: " + err.message);
++        data.employees.forEach(emp => {
++          const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
++          for (let i = 0; i < dbData.length; i++) {
++            if (normalize(dbData[i][0]) === inputName) {
++              // 🛠️ แก้ไขลอจิก i + startRow ป้องกันการเกิดข้อความต่อกัน (เช่น แถว 13 แทนที่จะเป็นแถว 4)
++              sheet.getRange(i + startRow, 9).setValue(customOtSite);
++              sheet.getRange(i + startRow, 10).setValue(customOtTask);
++              break;
++            }
++          }
++        });
++      }
++    } catch (e) { console.error("Custom OT error: " + e.message); }
+   }
+-}
+ 
+-/**
+- * 🛠️ ฟังก์ชันตอบกลับไลน์แบบด่วน (พ่นข้อความธรรมดา) โหลด Token จากระบบด้วยตนเองเพื่อป้องกันปัญหา Global Token
+- * @param {String} replyToken - รหัสตอบกลับจาก LINE
+- * @param {String} msg - ข้อความที่ต้องการส่ง
+- */
+-function emergencyReply(replyToken, msg) {
+-  try {
+-    const props = PropertiesService.getScriptProperties();
+-    const token = props.getProperty("LINE_CHANNEL_ACCESS_TOKEN") || (typeof getDynamicConfig === "function" ? getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') : null);
+-    if (!token) {
+-      console.error("🚨 ทรัพยากรสูญหาย: ไม่พบ LINE_CHANNEL_ACCESS_TOKEN");
+-      return;
+-    }
+-    
+-    const response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+-      'headers': {
+-        'Content-Type': 'application/json; charset=UTF-8',
+-        'Authorization': 'Bearer ' + token,
+-      },
+-      'method': 'post',
+-      'payload': JSON.stringify({
+-        'replyToken': replyToken,
+-        'messages': [{ 'type': 'text', 'text': msg }]
+-      }),
+-      'muteHttpExceptions': true
+-    });
++  let txt = "";
++  if (writeRes.errors && writeRes.errors.length > 0) txt += `⚠️ หาชื่อไม่พบ: ${writeRes.errors.join(', ')}\n`;
++  if (txt !== "" || writeRes.count === 0) logErrorToSheet(targetId, data.original_msg, txt || "บันทึกไม่ได้");
+ 
+-    // ตรวจสอบผลการส่ง ถ้าไม่ใช่ 200 OK ให้พ่น Error ลงระบบ
+-    if (response.getResponseCode() !== 200) {
+-      console.error("🔴 LINE API Error: " + response.getContentText());
+-    }
+-  } catch(e) {
+-    console.error("emergencyReply fatal error:", e.message);
+-  }
+-}
++  let timeStatus = (!data.time_end || data.time_end === "") ? `(ลงเวลาเข้า: ${data.time_start})` : `(เวลา: ${data.time_start}-${data.time_end})`;
++  let displaySite = data.default_site; if (customOtSite) displaySite += `\n[ไซต์ OT: ${customOtSite} | งาน OT: ${customOtTask}]`;
++  const accomText = data.default_Accom || writeRes.accom || 'ไม่ได้ระบุ';
+ 
+-/**
+- * 🛠️ ฟังก์ชันส่ง Quick Reply กลับหาผู้ใช้ (บังคับใส่เครื่องหมาย # นำหน้าอัตโนมัติเพื่อป้องกันตัวกรองบล็อก)
+- * @param {String} replyToken - รหัสตอบกลับ
+- * @param {String} text - ข้อความที่จะแสดง
+- * @param {Array<String>} options - ตัวเลือกบนปุ่มกด
+- */
+-function replyWithButtons(replyToken, text, options) {
+-  try {
+-    const props = PropertiesService.getScriptProperties();
+-    const token = props.getProperty("LINE_CHANNEL_ACCESS_TOKEN") || (typeof getDynamicConfig === "function" ? getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') : null);
+-    if (!token) return;
+-    
+-    // เติมเครื่องหมาย # เข้าไปที่ค่า text ฝั่งส่งกลับ (ยกเว้นบางปุ่มที่มีความหมายเฉพาะ)
+-    const quickReplyItems = options.map(label => {
+-      const isSystemCommand = ["ยอมรับ", "ปฏิเสธ", "ยกเลิกทั้งหมด", "ถ่ายใหม่", "ยกเลิกลงเวลา"].includes(label);
+-      return {
+-        "type": "action",
+-        "action": { "type": "message", "label": label, "text": isSystemCommand ? label : `#${label}` }
+-      };
+-    });
+-
+-    const payload = {
+-      replyToken: replyToken,
+-      messages: [{
+-        "type": "text", 
+-        "text": text,
+-        "quickReply": { "items": quickReplyItems }
+-      }]
+-    };
+-
+-    UrlFetchApp.fetch("https://api.line.me/v2/bot/message/reply", {
+-      method: "post",
+-      headers: { 
+-        "Content-Type": "application/json", 
+-        "Authorization": "Bearer " + token 
+-      },
+-      payload: JSON.stringify(payload),
+-      muteHttpExceptions: true
+-    });
+-  } catch (e) {
+-    console.error("replyWithButtons error:", e.message);
+-  }
++  reply(token, `${writeRes.count === 0 ? "❌ ไม่พบข้อมูล" : `✅ บันทึกสำเร็จ ${writeRes.count} คน`}${data.date ? `\n📅 วันที่: ${data.date}` : ""}\n${timeStatus}\nไซต์: ${displaySite}\n[ที่พัก: ${accomText}]${isTesting ? "\n🧪 [โหมดทดสอบ]" : ""}${txt ? "\n" + txt : ""}\n\n📌 โปรดตรวจเช็คความถูกต้อง หากผิดพลาดแจ้งแอดมินทันที`);
+ }
+ 
+-/**
+- * 🖼️ หน้าที่: ประมวลผลและสกัดข้อมูลรหัสพนักงานจากรูปบัตรตอก โดยเรียกใช้โครงข่ายประสาทเทียม Gemini Vision
+- * @param {String} messageId - รหัสของรูปภาพที่ถูกอัปโหลดใน LINE
+- * @param {String} replyToken - รหัสสำหรับตอบกลับข้อความ
+- * @param {String} userId - รหัสประจำตัวผู้ใช้
+- */
+-function handleImageProcess(messageId, replyToken, userId) {
++async function handleImageProcess(mId, tk, uId) {
+   try {
+-    const props = PropertiesService.getScriptProperties();
+-    const token = props.getProperty('LINE_CHANNEL_ACCESS_TOKEN') || (typeof getDynamicConfig === "function" ? getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') : null);
+-    
+-    if (!token) {
+-      emergencyReply(replyToken, "❌ ระบบไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN");
+-      return;
+-    }
+-
+-    // ดาวน์โหลดรูประดับไบนารีจาก LINE
+-    const blob = UrlFetchApp.fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+-      headers: { "Authorization": "Bearer " + token },
+-      muteHttpExceptions: true
++    const blob = UrlFetchApp.fetch(`https://api-data.line.me/v2/bot/message/${mId}/content`, {
++      headers: { Authorization: "Bearer " + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') }
+     }).getBlob();
+ 
+-    const base64Image = Utilities.base64Encode(blob.getBytes());
++    const prompt = `SYSTEM: You are a strict Image verifier. Is this image a timesheet (bille/slip) or a human face?
++Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52011", ...], "reason": "string" }`;
++
++    let aiRes = await callGeminiVision(Utilities.base64Encode(blob.getBytes()), prompt, "image/jpeg");
++    if (!aiRes) return;
+     
+-    // เรียกใช้งาน Vision API แบบ Synchronous
+-    let aiRes = null;
+-    if (typeof callGeminiVision === "function") {
+-      aiRes = callGeminiVision(base64Image, `วิเคราะห์ตัวเลขรหัสพนักงานในภาพ และส่งคืนเป็น JSON: { "codes": ["52011", "52012"] }`, "image/jpeg");
++    if (aiRes.is_target === false || aiRes.confidence < 80) {
++      if (typeof logAuditTrail === "function") logAuditTrail(uId, "IMAGE_REJECT", "รูปภาพไม่ตรงเงื่อนไข", JSON.stringify(aiRes), 1.0, "REJECT", "Low confidence or not target");
++      return; // Silent Ignore
+     }
+ 
+-    if (!aiRes || !aiRes.codes || aiRes.codes.length === 0) {
+-      emergencyReply(replyToken, "❌ AI มองไม่เห็นรหัสพนักงานในภาพ หรือภาพอาจไม่ชัดเจนครับ โปรดถ่ายใหม่");
++    if (!aiRes.codes || aiRes.codes.length === 0) {
++      reply(tk, "❌ AI มองไม่เห็นรหัส");
+       return;
+     }
+ 
+-    let emps = [];
+-    if (typeof getEmployeesByCodes === "function") {
+-      emps = getEmployeesByCodes(aiRes.codes);
+-    }
+-
++    const emps = getEmployeesByCodes(aiRes.codes);
+     if (emps.length === 0) {
+-      emergencyReply(replyToken, `⚠️ ตรวจพบรหัส [${aiRes.codes.join(", ")}] แต่ไม่พบในฐานข้อมูลระบบพนักงานปัจจุบันครับ`);
++      reply(tk, `⚠️ พบรหัสแต่ไม่มีในฐานข้อมูล`);
+       return;
+     }
+ 
+-    // พักข้อมูลรหัสพนักงานไว้ในแคช เพื่อรอให้พนักงานพิมพ์รายละเอียดสถานที่และเวลาตามมา
+-    const cache = CacheService.getScriptCache();
+-    cache.put(`PENDING_IMG_CODES_${userId}`, JSON.stringify(aiRes.codes), 600);
++    CacheService.getScriptCache().put(`PENDING_IMG_CODES_${uId}`, JSON.stringify(aiRes.codes), 600);
+ 
++    // ⚠️ แก้ไขตรงนี้: ปรับข้อความตอบกลับเมื่อส่งรูป ให้หน้าตาเหมือนบิลสลิปสรุปยอด
+     const todayDate = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy");
+     const replyMsg = `✅ ตรวจพบพนักงาน ${emps.length} คน\n📅 วันที่: ${todayDate}\n(เวลา: กำลังรอการแจ้งเวลา)\nไซต์: กำลังรอแจ้ง\n[ที่พัก: กำลังรอแจ้ง]\n\n📌 โปรดพิมพ์รายละเอียดงานเพื่อบันทึกต่อได้เลยครับ`;
+-    
+-    emergencyReply(replyToken, replyMsg);
++    reply(tk, replyMsg);
+ 
+   } catch (e) {
+-    console.error("handleImageProcess Error: " + e.message);
+-    emergencyReply(replyToken, "❌ Error การอ่านรูปภาพ: " + e.message + " กรุณาลองอัปโหลดใหม่อีกครั้ง");
+-  }
+-}
+-
+-/**
+- * 🛠️ ตรวจสอบสิทธิ์แอดมิน (Admin Verification) 
+- * @param {String} userId - ไอดีที่ต้องการตรวจสอบ
+- * @returns {Boolean} true หากเป็น Admin
+- */
+-function verifyAdminRole(userId) {
+-  if (!userId) return false;
+-  
+-  // โหลดจากตัวแปร GLOBAL_CONFIG ในหน่วยความจำก่อน (ถ้ามีการประมวลผลไว้)
+-  if (typeof GLOBAL_CONFIG !== "undefined" && GLOBAL_CONFIG.ADMIN_LINE_IDS) {
+-    if (GLOBAL_CONFIG.ADMIN_LINE_IDS.includes(userId)) return true;
++    reply(tk, "❌ Error: " + e.message);
+   }
+-
+-  const props = PropertiesService.getScriptProperties();
+-  // รองรับชื่อ Key ทั้งสองแบบ เผื่อมีการเปลี่ยนแปลงในอนาคต (ADMIN_LINE_IDS หรือ ADMIN_ID_LIST)
+-  const adminIdsString = props.getProperty("ADMIN_LINE_IDS") || props.getProperty("ADMIN_ID_LIST") || "";
+-  const adminIds = adminIdsString.split(",").map(s => s.trim()).filter(Boolean);
+-  return adminIds.includes(userId);
+ }
+ 
+-// =================================================================
+-// ส่วนเสริมการจัดการคำสั่งทั่วไปและ ChatOps
+-// =================================================================
+-
+-function handleUndoLastAction(userId, token) {
++async function handleUndoLastAction(userId, token) {
+   const props = PropertiesService.getScriptProperties();
+   const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+   if (!lastJson) {
+-    emergencyReply(token, "⚠️ ไม่พบรายการล่าสุดที่คุณทำการบันทึก");
++    reply(token, "⚠️ ไม่พบรายการล่าสุด");
+     return;
+   }
+   try {
+     const last = JSON.parse(lastJson);
+-    if (typeof undoLastEntry === "function" && last.names && last.names.length > 0) {
+-      emergencyReply(token, undoLastEntry(last.names[0], last.date));
+-    } else {
+-      emergencyReply(token, "❌ ไม่สามารถดึงข้อมูลรายการล่าสุดได้สมบูรณ์");
+-    }
++    reply(token, undoLastEntry(last.names[0], last.date));
+     props.deleteProperty(`LAST_ENTRY_${userId}`);
+   } catch (e) {
+-    emergencyReply(token, "❌ ขัดข้องระหว่างการยกเลิก: " + e.message);
++    reply(token, "❌ Undo Error");
+   }
+ }
+ 
+-function handleUndoFromText(text, token) {
+-  let dataToUndo = null;
+-  if (typeof parseComplexMessage === "function") {
+-    dataToUndo = parseComplexMessage(text);
+-  }
+-  
++async function handleUndoFromText(text, token) {
++  const dataToUndo = parseComplexMessage(text);
+   if (!dataToUndo || !dataToUndo.date) {
+-    emergencyReply(token, "❌ ไม่พบวันที่ หรือรูปแบบการพิมพ์เพื่อยกเลิกไม่ถูกต้อง");
++    reply(token, "❌ ไม่พบวันที่");
+     return;
+   }
+-  
+   try {
+-    if (typeof undoLastEntry === "function" && dataToUndo.employees && dataToUndo.employees.length > 0) {
+-      emergencyReply(token, undoLastEntry(dataToUndo.employees[0].firstname, dataToUndo.date));
+-    }
++    reply(token, undoLastEntry(dataToUndo.employees[0].firstname, dataToUndo.date));
+   } catch (e) {
+-    emergencyReply(token, "❌ ขัดข้องระหว่างการยกเลิก: " + e.message);
++    reply(token, "❌ Undo Error");
+   }
+ }
+ 
+-function handleCheckReport(content, userId, replyToken) {
+-  if (typeof getDailyCheckInSummary !== "function") {
+-    emergencyReply(replyToken, "ฟังก์ชันเช็ครายงานไม่พร้อมทำงาน (Missing getDailyCheckInSummary)");
+-    return;
+-  }
+-  
+-  const dateStr = typeof parseThaiDate === 'function' ? parseThaiDate(new Date()) : new Date().toLocaleDateString('th-TH');
+-  const result = getDailyCheckInSummary(dateStr);
+-  
+-  if (result.error) {
+-    emergencyReply(replyToken, `❌ เกิดข้อผิดพลาด: ${result.error}`);
+-    return;
+-  }
+-  
+-  let msg = `📊 สรุปรายงานเช็คอินวันที่ ${result.dateStr}\n`;
+-  msg += `✅ เข้างานแล้ว: ${result.checkedIn.length} คน\n`;
+-  
+-  const maxDisplay = 30;
+-  const showCheckedIn = result.checkedIn.slice(0, maxDisplay);
+-  showCheckedIn.forEach(emp => {
+-    msg += ` - ${emp.name} (${emp.site})\n`;
+-  });
+-  if (result.checkedIn.length > maxDisplay) msg += `   ...และอีก ${result.checkedIn.length - maxDisplay} คน\n`;
+-  
+-  msg += `\n❌ ยังไม่เข้างาน/ขาด: ${result.absent.length} คน\n`;
+-  const showAbsent = result.absent.slice(0, maxDisplay);
+-  showAbsent.forEach(name => {
+-    msg += ` - ${name}\n`;
+-  });
+-  if (result.absent.length > maxDisplay) msg += `   ...และอีก ${result.absent.length - maxDisplay} คน`;
+-  
+-  emergencyReply(replyToken, msg.trim());
++async function handleCheckReport(content, userId, replyToken) {
++  reply(replyToken, "ฟังก์ชันเช็ครายงานอยู่ระหว่างอัปเกรดฐานข้อมูลครับ");
+ }
+ 
+-function handleCommands(msg, token, userId) {
+-  let raw = null;
+-  if (typeof callGemini === "function") {
+-    raw = callGemini(msg, `Analyze intent: LEAVE, BROADCAST, HELP, SYSTEM_STATUS. Output pure JSON format {intent: "...", data: {...}}`, true);
+-  }
+-  
+-  if (!raw) {
+-    emergencyReply(token, "⚠️ ไม่สามารถติดต่อ AI วิเคราะห์คำสั่งได้ครับ");
+-    return;
+-  }
++async function handleCommands(msg, token, userId) {
++  const raw = await callGemini(msg, `Analyze intent: LEAVE, BROADCAST, HELP, SYSTEM_STATUS. JSON {intent, data}`, true);
++  if (!raw) return;
+ 
+   switch (raw.intent) {
+     case "LEAVE":
+-      if (typeof recordLeaveData === "function" && raw.data) {
+-        emergencyReply(token, recordLeaveData(raw.data.name, raw.data.type, raw.data.date));
+-      }
++      reply(token, recordLeaveData(raw.data.name, raw.data.type, raw.data.date));
+       break;
+     case "SYSTEM_STATUS":
+-      const status = typeof getDynamicConfig === "function" ? getDynamicConfig("SYSTEM_STATUS") : PropertiesService.getScriptProperties().getProperty("SYSTEM_STATUS");
+-      emergencyReply(token, `⚙️ Status ระบบการจัดการปัจจุบัน: ${status || "ON"}`);
++      reply(token, `⚙️ สถานะระบบ: ${getDynamicConfig("SYSTEM_STATUS")}`);
+       break;
+     default:
+-      emergencyReply(token, "⚠️ ระบบไม่เข้าใจคำสั่ง หรือคำสั่งอยู่นอกเหนือขอบเขตครับ");
++      reply(token, "⚠️ ไม่เข้าใจคำสั่ง");
+   }
+ }
+ 
+ function handleTestMode(content, replyToken) {
+-  const props = PropertiesService.getScriptProperties();
+-  if (content === "ทดสอบระบบ") {
+-    props.setProperty("IS_TESTING", "TRUE");
+-    emergencyReply(replyToken, "🧪 เปิดโหมดทดสอบแล้ว (ข้อมูลจะถูกจัดเก็บโดยมีสัญลักษณ์ทดสอบกำกับ)");
+-  } else if (content === "ปิดโหมดทดสอบ") {
+-    props.setProperty("IS_TESTING", "FALSE");
+-    emergencyReply(replyToken, "🧹 ปิดโหมดทดสอบแล้ว");
+-  }
+-}
+-
+-// =================================================================
+-// 🧠 GEMINI API WRAPPERS (AI Connections)
+-// =================================================================
+-
+-/**
+- * 🚀 ฟังก์ชันช่วยเหลือพื้นฐาน (Helper Utilities)
+- */
+-function fetchWithRetry(url, options = {}, attempts = 3, backoffMs = 500) {
+-  options = options || {};
+-  if (!options.method) options.method = 'get';
+-  if (typeof options.muteHttpExceptions === 'undefined') options.muteHttpExceptions = true;
+-
+-  let lastErr = null;
+-  for (let i = 0; i < attempts; i++) {
+-    try {
+-      const res = UrlFetchApp.fetch(url, options);
+-      const code = res.getResponseCode();
+-      if (code >= 200 && code < 300) return res;
+-      if (code >= 400 && code < 500) {
+-        throw new Error("HTTP " + code + " " + res.getContentText());
+-      }
+-      lastErr = new Error("HTTP " + code + " " + res.getContentText());
+-    } catch (e) {
+-      lastErr = e;
+-      if (i === attempts - 1) throw e;
+-      Utilities.sleep(backoffMs * Math.pow(2, i));
+-    }
+-  }
+-  throw lastErr || new Error("fetchWithRetry failed");
+-}
+-
+-function fetchGemini(url, payload, isJson) {
+-  try {
+-    const options = {
+-      method: "post",
+-      contentType: "application/json",
+-      payload: JSON.stringify(payload),
+-      muteHttpExceptions: true
+-    };
+-    
+-    const res = fetchWithRetry(url, options, 3, 400);
+-    if (!res) return null;
+-    
+-    const code = res.getResponseCode();
+-    if (code < 200 || code >= 300) {
+-      console.error("fetchGemini non-2xx: " + code + " -> " + res.getContentText());
+-      return null;
+-    }
+-    
+-    const textBody = res.getContentText();
+-    let json;
+-    try { json = JSON.parse(textBody); } catch (e) { console.error("fetchGemini parse error: " + e.message); return null; }
+-
+-    const candidates = (json && json.candidates) ? json.candidates : null;
+-    if (!candidates || !candidates[0]) return null;
+-    const content = candidates[0].content || {};
+-    const parts = content.parts || [];
+-    let text = parts.map(p => (p && p.text) ? p.text : "").join("\n").trim();
+-
+-    if (isJson) {
+-      // คลีน Backtick ออกเพื่อป้องกัน JSON Parsing พัง
+-      text = text.replace(new RegExp("\\x60\\x60\\x60(?:json)?", "gi"), "").replace(new RegExp("\\x60\\x60\\x60", "g"), "").trim();
+-      const startBrace = text.indexOf('{');
+-      const startBracket = text.indexOf('[');
+-      let startIdx = -1;
+-      
+-      if (startBrace === -1 && startBracket === -1) {
+-        try { return JSON.parse(text); } catch (e) { return null; }
+-      } else {
+-        if (startBrace === -1) startIdx = startBracket;
+-        else if (startBracket === -1) startIdx = startBrace;
+-        else startIdx = Math.min(startBrace, startBracket);
+-      }
+-      
+-      const candidateStr = text.substring(startIdx).trim();
+-      try {
+-        return JSON.parse(candidateStr);
+-      } catch (e) {
+-        return null; // Fallback หากโครงสร้าง JSON ไม่สมบูรณ์
+-      }
+-    }
+-    return text;
+-  } catch (e) {
+-    console.error("fetchGemini error: " + (e && e.message ? e.message : e));
+-    return null;
+-  }
+-}
+-
+-function callGemini(content, systemInstruction, isJson, useWebKey = false) {
+-  const props = PropertiesService.getScriptProperties();
+-  const model = props.getProperty("MODEL_NAME") || "gemini-2.5-flash"; // หรือ gemini-1.5-flash
+-  
+-  const apiKey = useWebKey 
+-    ? (props.getProperty("GEMINI_API_KEY_WEB") || props.getProperty("GEMINI_API_KEY_LINE"))
+-    : (props.getProperty("GEMINI_API_KEY_LINE") || props.getProperty("GEMINI_API_KEY_WEB"));
+-
+-  if (!apiKey) {
+-    console.error("GEMINI_API_KEY not set");
+-    return null;
+-  }
+-  
+-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+-  const payload = {
+-    contents: [{ parts: [{ text: content || "" }] }],
+-    systemInstruction: { parts: [{ text: systemInstruction || "" }] },
+-    generationConfig: { responseMimeType: isJson ? "application/json" : "text/plain" }
+-  };
+-  
+-  return fetchGemini(url, payload, !!isJson);
++  PropertiesService.getScriptProperties().setProperty("IS_TESTING", content === "ทดสอบระบบ" ? "TRUE" : "FALSE");
++  reply(replyToken, content === "ทดสอบระบบ" ? "🧪 เปิดโหมดทดสอบแล้ว" : "🧹 ปิดโหมดทดสอบแล้ว");
+ }
+ 
+-
+-
+-
+-/**
+- * บันทึกเหตุการณ์เชิงตรวจสอบของระบบ (Audit Log ระบบ)
+- */
+-function logSystemEvent(actionType, source, details) {
+-  try {
+-    const timestamp = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss");
+-    console.log(`[${timestamp}] [AUDIT] ${actionType} | ${source} | ${details}`);
+-  } catch (e) {
+-    console.error("Log failed: " + e.message);
+-  }
+-}
+\ No newline at end of file
++// ⚠️ [CONSOLIDATED] isAdmin() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)
++// ป้องกัน GAS "last wins" override ที่ทำให้ลอจิกตรวจสอบ Admin ทำงานผิดพลาด
+\ No newline at end of file
+diff --git a/v690/2_WebApp.js b/v720/2_WebApp.js
+index 6a7277e..d172a23 100644
+--- a/v690/2_WebApp.js
++++ b/v720/2_WebApp.js
+@@ -16,13 +16,14 @@ function apiSaveConfigFromWeb(key, value) {
+ // =====================================================================
+ function getEmployeeData() {
+   try {
+-    var dbId = (typeof GLOBAL_CONFIG !== 'undefined' && GLOBAL_CONFIG.EXTERNAL_DATABASE_ID) ? GLOBAL_CONFIG.EXTERNAL_DATABASE_ID : '1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk';
+-    if (typeof getDynamicConfig === 'function') {
+-      var configDbId = getDynamicConfig("EMPLOYEE_SHEET_ID") || getDynamicConfig("EXTERNAL_DATABASE_ID");
+-      if (configDbId) dbId = configDbId;
++    // 1. ค้นหาไฟล์ด้วยชื่อในระบบ Google Drive
++    var files = DriveApp.getFilesByName('ไฟล์ DATA');
++    if (!files.hasNext()) {
++      return []; // หากไม่พบไฟล์ จะส่งอาเรย์ว่างกลับไปป้องกันระบบล่ม
+     }
+-    
+-    var ss = SpreadsheetApp.openById(dbId);
++
++    var file = files.next();
++    var ss = SpreadsheetApp.open(file);
+ 
+     // 🎯 กำหนดให้ค้นหาจากชีต 'รายชื่อพนักงาน' เป็นหลักก่อน (หากไม่พบถึงจะดึงชีตแรก)
+     var sheet = ss.getSheetByName('รายชื่อพนักงาน') || ss.getSheets()[0];
+@@ -47,19 +48,11 @@ function getEmployeeData() {
+         });
+       }
+     }
+-    
+-    // ถ้าไม่มีข้อมูลเลย ให้ส่งข้อมูลแจ้งเตือน
+-    if (employeeList.length === 0) {
+-      employeeList.push({ A: 1, B: 'SYS', C: 'NoData', D: 'Found', E: 'SYS NoData Found in Sheet', J: 'System', K: 'ปกติ', N: 'ERROR-01' });
+-    }
+-    
+     return employeeList;
+-  } catch(e) {
+-    console.error("getEmployeeData error:", e);
+-    // ส่ง Error กลับไปเป็นข้อมูลพนักงานเพื่อให้หน้าเว็บแสดงผลว่าพังเพราะอะไร
+-    return [{
+-      A: 1, B: 'ERR', C: 'Exception', D: '', E: 'ERR: ' + e.message, J: 'System', K: 'ปกติ', N: 'ERROR-02'
+-    }];
++
++  } catch (error) {
++    Logger.log("Error ในฟังก์ชัน getEmployeeData: " + error.toString());
++    return [];
+   }
+ }
+ // =====================================================================
+@@ -67,26 +60,6 @@ function getEmployeeData() {
+ // ⚠️ แก้ไขแล้ว: ใช้ openById + MONTHLY_FILE_IDS แทน getActiveSpreadsheet()
+ //    เพราะ Web App ไม่มี "active spreadsheet" ทำให้ไม่เคยบันทึกลงชีตจริงได้
+ // =====================================================================
+-function doGet(e) {
+-  if (e && e.parameter && e.parameter.debug) {
+-    try {
+-      const monthIndex = new Date().getMonth();
+-      const targetFileId = getDynamicConfig("MONTHLY_FILE_IDS")[monthIndex];
+-      const ss = SpreadsheetApp.openById(targetFileId);
+-      const sheet = ss.getSheets()[0];
+-      const names = sheet.getRange(3, 4, 10, 1).getValues();
+-      return ContentService.createTextOutput("Top 10 names in Daily Sheet:\n" + JSON.stringify(names));
+-    } catch(err) {
+-      return ContentService.createTextOutput("Debug Error: " + err.message);
+-    }
+-  }
+-  // โหลดหน้า index.html และตั้งค่า Viewport สำหรับมือถือ
+-  return HtmlService.createHtmlOutputFromFile('index')
+-    .setTitle('Smart Worksite System')
+-    .setFaviconUrl('https://i.ibb.co/N3w3P9pS/52.png')
+-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+-}
+-
+ function saveDailyReport(payload) {
+   var lock = LockService.getScriptLock();
+   try {
+@@ -100,10 +73,7 @@ function saveDailyReport(payload) {
+     var isAdmin = payload.isAdmin === true;
+ 
+     if (!employees || employees.length === 0) {
+-      if (typeof logAuditTrail === "function") {
+-        logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT_PAYLOAD_FAIL", JSON.stringify(payload).substring(0, 500), "", 0, "ERROR", "Payload missing employees");
+-      }
+-      return { success: false, message: "ไม่พบรายชื่อพนักงานที่เลือก: Keys=" + Object.keys(payload).join(",") };
++      return { success: false, message: "ไม่พบรายชื่อพนักงานที่เลือก" };
+     }
+ 
+     // 🚨 Server-Side Validation: ตรวจสอบวันที่ย้อนหลัง
+@@ -147,45 +117,35 @@ function saveDailyReport(payload) {
+     var thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+     var thaiFullDate = targetDate.getDate() + " " + thaiMonths[targetDate.getMonth()] + " " + (targetDate.getFullYear() + 543);
+ 
+-    // 🚀 ส่งต่อให้ตัวประมวลผลส่วนกลาง (writeToDailySheetBatch) เพื่อให้เป็นมาตรฐานเดียวกัน
+-    var employeesData = [];
+-    for (var i = 0; i < employees.length; i++) {
+-      var workerName = String(employees[i]).trim();
+-      
+-      employeesData.push({
+-        firstname: workerName,
+-        task: payload.note || "",
+-        accom: "-", // ไม่ได้ส่งมาจาก WebApp ให้คงเดิม
+-        has_ot_noon: false,
+-        ot_noon_in: "",
+-        ot_noon_out: ""
+-      });
++    // 🔍 ค้นหาแท็บชีตแบบ Tolerant (รองรับช่องว่างต่าง)
++    var sheet = ss.getSheetByName(thaiFullDate);
++    if (!sheet) {
++      var allSheets = ss.getSheets();
++      var cleanTarget = thaiFullDate.replace(/\s+/g, "");
++      for (var s = 0; s < allSheets.length; s++) {
++        if (allSheets[s].getName().replace(/\s+/g, "") === cleanTarget) {
++          sheet = allSheets[s];
++          break;
++        }
++      }
+     }
+ 
+-    var dataToProcess = {
+-      date: thaiFullDate,
+-      default_site: site,
+-      time_start: payload.timeIn || "",
+-      time_end: payload.timeOut || "",
+-      employees: employeesData
+-    };
++    if (!sheet) {
++      return { success: false, message: "ไม่พบแท็บชีตวันที่: " + thaiFullDate + " ในไฟล์เดือนที่ " + (monthIndex + 1) + " (กรุณาสร้างแท็บวันที่ในไฟล์ก่อน)" };
++    }
+ 
+-    if (typeof writeToDailySheetBatch === 'function') {
+-      var writeRes = writeToDailySheetBatch(dataToProcess, "WEB_APP_USER", targetFileId);
+-      
+-      if (writeRes.count > 0) {
+-        // 📝 บันทึก Audit Trail
+-        if (typeof logAuditTrail === "function") {
+-          logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + writeRes.count + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
+-        }
+-        return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + writeRes.count + " คน)" };
+-      } else {
+-        return { success: false, message: "บันทึกไม่สำเร็จ: " + (writeRes.errors ? writeRes.errors.join(", ") : "ไม่พบรายชื่อในชีต") };
+-      }
+-    } else {
+-      return { success: false, message: "ระบบประมวลผลส่วนกลาง (writeToDailySheetBatch) ไม่พร้อมใช้งาน" };
++    // ✅ บันทึกข้อมูลพนักงานลงแถวใหม่ในชีต
++    for (var i = 0; i < employees.length; i++) {
++      sheet.appendRow([dateStr, site, employees[i], normalHour, otTotal]);
+     }
+ 
++    // 📝 บันทึก Audit Trail
++    if (typeof logAuditTrail === "function") {
++      logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + employees.length + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
++    }
++
++    return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + employees.length + " คน)" };
++
+   } catch (err) {
+     // บันทึก Error ลง Audit
+     if (typeof logAuditTrail === "function") {
+diff --git a/v690/3_SharedFunctions.js b/v720/3_SharedFunctions.js
+index 979d1ce..ab20dc7 100644
+--- a/v690/3_SharedFunctions.js
++++ b/v720/3_SharedFunctions.js
+@@ -23,11 +23,7 @@ function fetchWithRetry(url, payload, isJson, attempts = 3, backoffMs = 500) {
+   return null;
+ }
+ 
+-async function callGeminiVision(base64Str, system, mimeType) {
+-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getDynamicConfig('MODEL_NAME')}:generateContent?key=${getDynamicConfig('GEMINI_API_KEY')}`;
+-  const payload = { contents: [{ parts: [{ text: "Extract worker codes." }, { inlineData: { mimeType: mimeType, data: base64Str } }] }], systemInstruction: { parts: [{ text: system }] }, generationConfig: { responseMimeType: "application/json" } };
+-  return fetchWithRetry(url, payload, true);
+-}
++async 
+ 
+ async function processMessageWithAI(message) {
+   const prompt = `คุณคือระบบประมวลผลข้อมูล (API) ห้ามอธิบายใดๆ แปลงข้อความเป็น JSON โครงสร้างดังนี้: 
+@@ -153,55 +149,7 @@ function parseComplexMessage(text) {
+   } catch (e) { return null; }
+ }
+ 
+-function writeToDailySheet(data, userId, fileId) {
+-  const ss = SpreadsheetApp.openById(fileId);
+-  const sheetName = parseThaiDate(data.date);
+-  const sheet = ss.getSheetByName(sheetName);
+-  
+-  if (!sheet) return { count: 0, errors: ["ไม่พบหน้าวันที่: " + sheetName] };
+-  const dbData = sheet.getRange(3, 4, sheet.getLastRow(), 2).getValues();
+-  
+-  let successCount = 0; let errors = []; let processedNames = []; let replyAccom = "ไม่ได้ระบุ"; 
+-  const fuzzyThreshold = parseFloat(getDynamicConfig("FUZZY_THRESHOLD")); // 🔮 ดึงค่า Fuzzy
+-
+-  data.employees.forEach(emp => {
+-    let rowIndex = -1;
+-    const inputName = normalize(emp.firstname);
+-    
+-    // 🔮 ค้นหาชื่อด้วย Fuzzy Logic ผสมแบบเก่า
+-    let bestScore = 0;
+-    for (let i = 0; i < dbData.length; i++) {
+-      const dbName = normalize(dbData[i][0]);
+-      if (!dbName) continue;
+-      
+-      const score = getStringSimilarity(inputName, dbName);
+-      if (score === 1.0 || (score >= fuzzyThreshold && score > bestScore)) {
+-          bestScore = score;
+-          rowIndex = 3 + i;
+-          if (score === 1.0) break; // ตรงเป๊ะออกเลย
+-      }
+-    }
+-    
+-    if (rowIndex !== -1) {
+-      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_SITE).setValue(data.default_site);
+-      sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_WORK).setValue(emp.task);
+-      
+-      let empAccom = emp.accom;
+-      if (!empAccom || empAccom === "-" || empAccom === "เดิม") empAccom = sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).getValue();
+-      else sheet.getRange(rowIndex, GLOBAL_CONFIG.COL_ACCOM).setValue(empAccom);
+-      if (successCount === 0) replyAccom = empAccom || "ไม่ได้ระบุ";
+-
+-      const otHrs = calculateAndTimeEntry(sheet, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
+-      if (otHrs > 0) { sheet.getRange(rowIndex, 9).setValue(data.default_site); sheet.getRange(rowIndex, 10).setValue(emp.task); } 
+-      else { sheet.getRange(rowIndex, 9).clearContent(); sheet.getRange(rowIndex, 10).clearContent(); }
+-      
+-      successCount++; processedNames.push(inputName);
+-    } else { errors.push(emp.firstname); }
+-  });
+ 
+-  if (userId && successCount > 0) PropertiesService.getScriptProperties().setProperty(`LAST_ENTRY_${userId}`, JSON.stringify({ date: data.date, names: processedNames }));
+-  return { count: successCount, errors: errors, accom: replyAccom };
+-}
+ 
+ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
+   if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
+@@ -259,7 +207,10 @@ function getEmployeesByCodes(codes) {
+     const sheet = SpreadsheetApp.openById(GLOBAL_CONFIG.EXTERNAL_DATABASE_ID).getSheetByName(GLOBAL_CONFIG.DATABASE_SHEET_NAME);
+     const data = sheet.getRange(2, 1, sheet.getLastRow(), 14).getValues();
+     return data.filter(r => codes.includes(String(r[13]).trim())).map(r => ({ code: r[13], firstname: r[2], lastname: r[3] }));
+-  } catch (e) { return []; }
++  } catch (e) { 
++    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "getEmployeesByCodes", e.message);
++    return []; 
++  }
+ }
+ 
+ // =================================================================
+@@ -322,24 +273,7 @@ function fixAllOTInSheet() {
+ // -----------------------------------------------------------------
+ // 🛠️ ฟังก์ชันเสริมประสิทธิภาพฉบับ Hotfix แบบไม่พึ่งพารายการนอกไฟล์
+ // -----------------------------------------------------------------
+-function getTargetFileIdByDate(dateStr) {
+-  let mIndex = new Date().getMonth(); 
+-  if (dateStr) { 
+-    const p = String(dateStr).replace("#", "").trim().split(/[\/\-.]/); 
+-    if (p.length >= 2) { 
+-      let m = parseInt(p[1], 10) - 1; 
+-      if (m >= 0 && m <= 11) mIndex = m; 
+-    } 
+-  }
+-  
+-  // 📂 อ้างอิงตาม MONTHLY_FILE_IDS ของ 4_Config ล่าสุด
+-  if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[mIndex]) {
+-    return MONTHLY_FILE_IDS[mIndex];
+-  }
+-  
+-  // Fallback: ใช้ฐานข้อมูลกลางแทน (ลบ backupIds ออก — ให้ MONTHLY_FILE_IDS ใน Config.gs เป็นแหล่งเดียว)
+-  return getDynamicConfig("EXTERNAL_DATABASE_ID");
+-}
++
+ 
+ // ⚠️ [CONSOLIDATED] getDynamicPrompt() ถูกรวมไปไว้ที่ 7_AI_Assistant.gs (เวอร์ชันเต็มที่อ่านจาก Script Properties ก่อน)
+ // ป้องกัน GAS "last wins" override ที่ทำให้ AI prompt ไม่สามารถอัปเดตผ่าน setDynamicPrompt() ได้
+@@ -396,44 +330,49 @@ function parseThaiDate(s) {
+  * @param {string} level - ระดับความรุนแรง (INFO, WARN, ERROR, CRITICAL)
+  * @param {string} errorMessage - รายละเอียดข้อผิดพลาดเชิงลึก
+  */
+-function logAuditTrail(actionType, status, payload, user, execTime, level, errorMessage) {
++function logAuditTrail(userId, actionType, inputRaw, machineStructured, confidence, userAction, executionMessage) {
++  const lock = LockService.getDocumentLock();
+   try {
+-    const ss = SpreadsheetApp.getActiveSpreadsheet(); // หากต้องการชี้ไปไฟล์อื่นให้ใช้ openById
+-    const sheetName = "AuditLog";
+-    let sheet = ss.getSheetByName(sheetName);
+-
+-    // สร้างหน้า Sheet อัตโนมัติหากยังไม่มี เพื่อป้องกันระบบพัง
++    lock.waitLock(10000);
++    
++    var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
++    var ss;
++    if (dbId) {
++      ss = typeof getCachedSpreadsheet === 'function' ? getCachedSpreadsheet(dbId) : SpreadsheetApp.openById(dbId);
++    } else {
++      ss = SpreadsheetApp.getActiveSpreadsheet(); // Fallback to current if no external DB ID
++    }
++    
++    var sheetName = "Audit_Log";
++    var sheet = ss.getSheetByName(sheetName);
++    
+     if (!sheet) {
+       sheet = ss.insertSheet(sheetName);
+-      sheet.appendRow(["Timestamp", "Level", "Action", "Status", "User", "ExecutionTime(ms)", "Payload", "ErrorMessage"]);
+-      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#e0e0e0");
++      sheet.appendRow(["วัน-เวลา", "LINE User ID", "ประเภทเหตุการณ์", "ข้อความอินพุตดิบ", "โครงสร้างข้อมูลระดับเครื่อง", "คะแนนความมั่นใจ", "การดำเนินการของยูสเซอร์", "บันทึกข้อความจากเซิร์ฟเวอร์"]);
++      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#cfe2ff").setHorizontalAlignment("center");
+       sheet.setFrozenRows(1);
+     }
+-
+-    const timestamp = new Date();
+-    // จัดการข้อมูลให้ปลอดภัย ป้องกันช่องโหว่ความยาวข้อมูลเกินโควต้าชีต
+-    const safePayload = typeof payload === 'object' ? JSON.stringify(payload) : String(payload || "");
+-    const safeError = String(errorMessage || "");
++    
++    // Fallbacks and safety checks
++    const safeInput = String(inputRaw || "").substring(0, 1000);
++    const safeMachine = String(machineStructured || "").substring(0, 1000);
++    const safeMsg = String(executionMessage || "").substring(0, 1000);
+ 
+     sheet.appendRow([
+-      timestamp,
+-      level || "INFO",
++      Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss"),
++      userId || "SYSTEM",
+       actionType || "UNKNOWN",
+-      status || "UNKNOWN",
+-      user || "SYSTEM",
+-      execTime || 0.0,
+-      safePayload.substring(0, 1000), // ตัดคำให้ไม่เกิน 1,000 ตัวอักษรป้องกันล้น
+-      safeError.substring(0, 1000)
++      safeInput,
++      safeMachine,
++      confidence || 1.0,
++      userAction || "",
++      safeMsg
+     ]);
+ 
+-    // แจ้งเตือนแบบ Real-time ลง Console ของนักพัฒนาหากเกิด ERROR
+-    if (level === "ERROR" || level === "CRITICAL") {
+-      console.error(`[AUDIT ${level}] ${actionType}: ${safeError}`);
+-    }
+-
+-  } catch (e) {
+-    // ปราการด่านสุดท้าย ไม่ให้ระบบหลักล่มหาก Audit พัง
+-    console.error(`[CRITICAL] ระบบ AuditTrail ล้มเหลว: ${e.message}`);
++  } catch (err) {
++    console.error("[CRITICAL] ระบบ AuditTrail ล้มเหลว: " + err.message);
++  } finally {
++    lock.releaseLock();
+   }
+ }
+ // =================================================================
+diff --git a/v690/4_CoreDatabase.js b/v720/4_CoreDatabase.js
+index a81431e..554d450 100644
+--- a/v690/4_CoreDatabase.js
++++ b/v720/4_CoreDatabase.js
+@@ -19,7 +19,8 @@ var CORE_DB = {
+ };
+ 
+ function writeToDailySheetBatch(data, userId, fileId) {
+-  if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
++  try {
++    if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
+   const ss = SpreadsheetApp.openById(fileId);
+   const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
+   
+@@ -55,16 +56,11 @@ function writeToDailySheetBatch(data, userId, fileId) {
+     let rowIndex = -1;
+     
+     // 🔒 ปิดระบบ Fuzzy และ Includes: บังคับให้ชื่อต้องตรงกันเป๊ะๆ (Exact Match) 100% เท่านั้น
+-    // แต่เพื่อรองรับกรณีที่ชีตลงเวลาใช้แค่ "ชื่อจริง" หรือ "ชื่อ-สกุล" จึงเช็คทั้ง 2 แบบ
+-    const firstNameOnly = typeof normalize === 'function' ? normalize(String(emp.firstname).trim().split(/\s+/).filter(w => !w.match(/^(นาย|นาง|น\.?ส\.?|ด\.?ช\.?|ด\.?ญ\.?)$/))[0] || String(emp.firstname).trim().split(/\s+/)[0]) : String(emp.firstname).trim().split(/\s+/)[0];
+-    
+     for (let i = 0; i < block.length; i++) {
+-      let raw = block[i][CORE_DB.COL_NAME_CHECK - 1];
+-      if (raw && raw.toString().trim() !== "") {
+-        const rowName = typeof normalize === 'function' ? normalize(raw) : raw; 
+-        if (rowName === inputName || rowName === firstNameOnly) {
+-          rowIndex = i; break;
+-        }
++      const rowName = typeof normalize === 'function' ? normalize(block[i][CORE_DB.COL_NAME_CHECK - 1]) : block[i][CORE_DB.COL_NAME_CHECK - 1]; 
++      // แก้ไขลบ .includes() ออก และใช้ === ตรวจสอบแบบตายตัว
++      if (rowName !== "" && rowName === inputName) {
++        rowIndex = i; break;
+       }
+     }
+ 
+@@ -88,23 +84,16 @@ function writeToDailySheetBatch(data, userId, fileId) {
+       }
+       successCount++;
+     } else {
+-      let debugStr = "in:'" + inputName + "', db:";
+-      let count = 0;
+-      for(let k=0; k<block.length; k++) {
+-         let raw = block[k][CORE_DB.COL_NAME_CHECK - 1];
+-         if (raw && raw.toString().trim() !== "") {
+-           let rName = typeof normalize === 'function' ? normalize(raw) : raw;
+-           debugStr += "'" + rName + "',";
+-           count++;
+-           if(count >= 3) break;
+-         }
+-      }
+-      errors.push(emp.firstname + " (" + debugStr + ")");
++      errors.push(emp.firstname);
+     }
+   });
+ 
+-  blockRange.setValues(block);
+-  return { count: successCount, errors: errors };
++    blockRange.setValues(block);
++    return { count: successCount, errors: errors };
++  } catch (err) {
++    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "writeToDailySheetBatch", err.message);
++    return { count: 0, errors: ["เกิดข้อผิดพลาดภายในระบบ: " + err.message] };
++  }
+ }
+ 
+ /**
+diff --git a/v690/7 _AI_Assistant.js b/v720/7 _AI_Assistant.js
+index 6307203..fec2acd 100644
+--- a/v690/7 _AI_Assistant.js	
++++ b/v720/7 _AI_Assistant.js	
+@@ -206,35 +206,7 @@ function rollbackLogic(userId, step) {
+ // 3. ระบบการสร้าง Audit Trail และเครื่องมือ DevOps
+ // ==========================================
+ 
+-function logAuditTrail(userId, actionType, inputRaw, machineStructured, confidence, userAction, executionMessage) {
+-  try {
+-    var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
+-    if (!dbId) return;
+-    
+-    // ดึง Spreadsheet จาก Cache ถ้ามี หรือเปิดใหม่
+-    var ss = typeof getCachedSpreadsheet === 'function' ? getCachedSpreadsheet(dbId) : SpreadsheetApp.openById(dbId);
+-    var sheet = ss.getSheetByName("Audit_Log") || ss.insertSheet("Audit_Log");
+-    
+-    if (sheet.getLastRow() === 0) {
+-      sheet.appendRow(["วัน-เวลา", "LINE User ID", "ประเภทเหตุการณ์", "ข้อความอินพุตดิบ", "โครงสร้างข้อมูลระดับเครื่อง", "คะแนนความมั่นใจ", "การดำเนินการของยูสเซอร์", "บันทึกข้อความจากเซิร์ฟเวอร์"]);
+-      sheet.getRange("A1:H1").setFontWeight("bold").setBackground("#cfe2ff").setHorizontalAlignment("center");
+-      sheet.setFrozenRows(1);
+-    }
+-    
+-    sheet.appendRow([
+-      Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss"),
+-      userId || "SYSTEM",
+-      actionType,
+-      inputRaw || "",
+-      machineStructured || "",
+-      confidence || 1.0,
+-      userAction || "",
+-      executionMessage || ""
+-    ]);
+-  } catch (err) {
+-    console.error("Critical Failure in Log Audit Trail Pipeline: " + err.message);
+-  }
+-}
++
+ 
+ function runDevOpsCliCommand(commandString) {
+   var args = commandString.trim().split(" ");
+@@ -283,14 +255,27 @@ function getDynamicPrompt(role) {
+   const validNames = typeof getValidNamesForAI === 'function' ? getValidNamesForAI() : "ไม่สามารถดึงรายชื่อได้";
+   const currentLogic = typeof getCurrentLogic === 'function' ? getCurrentLogic() : { ot_rule: "standard", backdate_limit: 2, allow_overtime_noon: true };
+   
+-  return `คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System
+-  รายชื่อพนักงานในระบบปัจจุบัน: ${validNames}
+-  ตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}
+-
+-  หน้าที่และวิธีการตอบกลับ:
+-  1. แนะนำการใช้งาน (Guide): หากผู้ใช้ถามวิธีใช้แอป ให้ตอบอธิบายสั้น กระชับ สุภาพ สไตล์พี่สอนน้อง เป็นข้อๆ 
+-  2. บันทึกงาน (Natural Language Input): หากผู้ใช้สั่งงานด้วยภาษาทั่วไป ให้แปลงเป็นโครงสร้าง JSON ตามที่ระบบกำหนด
+-  สรุปใจความสำคัญไว้บรรทัดแรกเสมอ ใช้ภาษาสุภาพ เป็นกันเอง`;
++  return `[Role & Core Objective]
++คุณคือระบบคัดกรองและประมวลผลข้อมูลอัตโนมัติของ LINE Bot ที่ทำหน้าที่จัดการข้อมูลเวลาทำงานและโอที คุณต้องปฏิบัติตามกฎการคัดกรองข้อมูลอย่างเคร่งครัด หากไม่ตรงเงื่อนไข ห้ามตอบกลับใดๆ ทั้งสิ้น (Silent Ignore)
++
++[Rules for Text Messages (ข้อความตัวอักษร)]
++1. ตรวจสอบสัญลักษณ์นำหน้า: 
++   - หากข้อความเริ่มต้นด้วยเครื่องหมาย "#" -> ให้ประมวลผลตามคำสั่งนั้นต่อไป
++   - หากข้อความ "ไม่มี" เครื่องหมาย "#" นำหน้า -> ให้ข้าม (Ignore) และไม่ตอบกลับใดๆ *ยกเว้น* กรณีในข้อ 2 และ 3
++2. ข้อยกเว้นระบบโอที: หากเป็นข้อความตอบกลับอัตโนมัติที่เกิดจากการระบบถามสถานที่ทำโอที (เช่น มีคำสำคัญเกี่ยวกับ สถานที่, โอที, Site Work) -> ให้ประมวลผลต่อ
++3. ข้อยกเว้นการกดปุ่ม: หากข้อความเป็นผลลัพธ์มาจากการที่บอทส่งคำถามไปก่อนหน้า แล้วผู้ใช้กดปุ่มตอบกลับ (Quick Reply / Template Buttons / Postback Text) -> ให้ประมวลผลต่อ
++
++[Rules for Image Messages (รูปภาพ)]
++1. วิเคราะห์ประเภทรูปภาพอย่างแม่นยำ:
++   - อนุญาตเฉพาะ "รูปบัตรตอก" (Timecard / ตารางเวลาทำงาน) หรือ "รูปถ่ายของบุคคล (Face/ID Photo)" ที่ใช้เพื่อระบุตัวตนในการเข้างานเท่านั้น -> ให้ประมวลผลต่อ
++2. รูปภาพประเภทอื่นทั้งหมด: หากไม่ใช่รูปบัตรตอกหรือรูปเพื่อระบุตัวตน (เช่น รูปหน้างาน, รูปสิ่งแวดล้อม, รูปสินค้า) -> ให้ข้าม (Ignore) และไม่ต้องตอบกลับใดๆ ทั้งสิ้น
++
++[Output Control]
++- หากข้อความหรือรูปภาพใดๆ ไม่ผ่านเงื่อนไขข้อยกเว้นข้างต้น ห้ามส่งข้อความตอบกลับ ห้ามแสดง Error และห้ามพิมพ์สิ่งใดตอบกลับไปในแชทเด็ดขาด
++- หากต้องมีการบันทึกข้อมูล ให้ส่งกลับเฉพาะโครงสร้าง JSON ที่กำหนดไว้เท่านั้น ห้ามอธิบายข้อความเพิ่ม (No Markdown, No conversational text)
++
++รายชื่อพนักงานในระบบปัจจุบัน: ${validNames}
++ตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}`;
+ }
+ 
+ function setDynamicPrompt(role, promptText) {
+@@ -345,3 +330,105 @@ function getProjectSourceCode() {
+  * @param {string} systemInstruction คำสั่งพื้นฐาน (System Prompt)
+  * @param {boolean} isJson ต้องการผลลัพธ์เป็น JSON หรือไม่
+  */
++function callGemini(prompt, systemInstruction, isJson) {
++  try {
++    const apiKey = getDynamicConfig("GEMINI_API_KEY_WEB"); // ดึง API Key จาก config
++    const model = getDynamicConfig("MODEL_NAME") || "gemini-1.5-flash"; // ใช้ model จาก config
++    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
++
++    const payload = {
++      "contents": [{
++        "parts": [{ "text": systemInstruction + "\n\nUser: " + prompt }]
++      }],
++      "generationConfig": {
++        "responseMimeType": isJson ? "application/json" : "text/plain"
++      }
++    };
++
++    const options = {
++      "method": "post",
++      "contentType": "application/json",
++      "payload": JSON.stringify(payload),
++      "muteHttpExceptions": true
++    };
++
++    const response = UrlFetchApp.fetch(url, options);
++    const result = JSON.parse(response.getContentText());
++
++    if (result.candidates && result.candidates[0].content.parts[0].text) {
++      return result.candidates[0].content.parts[0].text;
++    } else {
++      console.error("Gemini Error:", result);
++      return null;
++    }
++  } catch (e) {
++    console.error("Call Gemini Exception: " + e.message);
++    return null;
++  }
++}
++
++// ⚠️ [CONSOLIDATED] checkIsAdmin() ถูกลบออก — ใช้ isAdmin() จาก Config.gs แทนเป็นแหล่งเดียว
++// ป้องกันลอจิกตรวจสอบ Admin ทำงานไม่สอดคล้องกัน (ตัวนี้ใช้ ADMIN_LINE_ID แต่ตัวหลักใช้ ADMIN_LINE_IDS)
++
++// =================================================================
++// 📱 SOURCE HANDLERS (อัปเดตระบบ Hook)
++// =================================================================
++async function handleLineWebhook(json) {
++  let globalReplyToken = null;
++  try {
++    const event = json.events[0];
++    if (!event) return ContentService.createTextOutput("OK");
++
++    const { replyToken, source, message } = event;
++    globalReplyToken = replyToken; 
++    const userId = source.userId;
++    const groupId = source.groupId; // ดึง groupId
++    
++    // 🛡️ [GUARD CLAUSE]: ตรวจสอบ Group Whitelist
++    if (source.type === "group" && !isAllowedGroup(groupId)) {
++      logSystemEvent("BLOCKED_GROUP", "LINE_BOT", `Group ID: ${groupId} rejected.`);
++      return ContentService.createTextOutput("OK"); // Silent Ignore
++    }
++    
++    const adminId = (typeof getDynamicConfig === 'function' ? getDynamicConfig("ADMIN_LINE_ID") : "") || "";
++    const adminList = adminId.split(",").map(id => id.trim());
++    
++    if (message && message.type === "text") {
++      const msg = message.text.trim();
++
++      const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
++      if (source.type === "user" && !isUserAdmin) {
++        if (typeof reply === 'function') reply(replyToken, "⚠️ ขออภัยครับ บอทรับลงรายงานเฉพาะใน 'ไลน์กลุ่ม' เท่านั้นครับ 🙏");
++        return ContentService.createTextOutput("OK");
++      }
++
++      const cache = CacheService.getScriptCache();
++      const pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
++      const pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
++      const pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
++
++      if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
++        cache.removeAll([`PENDING_CLOCKIN_${userId}`, `PENDING_OT_CONFIRM_${userId}`, `PENDING_OT_DETAILS_${userId}`]);
++        logSystemEvent("CACHE_CLEARED", "LINE_BOT", `Cleared pending states for: ${userId}`);
++      }
++
++      // 🤖 [HOOK]: ลอจิกแชทบอท LINE ทำงานต่อตรงนี้ (Flexible Name Matching)
++      const extractedEmployees = extractEmployeesFromText(msg);
++      if (extractedEmployees.length > 0) {
++        logSystemEvent("NAME_MATCHED", "LINE_BOT", `Found ${extractedEmployees.length} emps from ${userId}`);
++        
++        // จำลองข้อมูลเบื้องต้น รอการเติมข้อมูลจาก Regex หรือ AI ต่อไป
++        const mockInfo = { date: "วันนี้", time: "รอแก้ไข", site: "รอแก้ไข" };
++        const replyMsg = formatResponse(extractedEmployees, mockInfo);
++        
++        if (typeof reply === 'function') reply(replyToken, replyMsg);
++      }
++    }
++    return ContentService.createTextOutput("OK");
++
++  } catch (err) {
++    logSystemEvent("LINE_HANDLER_ERROR", "LINE_BOT", err.message);
++    if (globalReplyToken && typeof reply === 'function') reply(globalReplyToken, "⚠️ ระบบขัดข้องชั่วคราว (Code: LINE_ERR)");
++    return ContentService.createTextOutput("Error");
++  }
++}
+\ No newline at end of file
+diff --git a/v690/Config.js b/v720/Config.js
+index 764e43b..929eb7e 100644
+--- a/v690/Config.js
++++ b/v720/Config.js
+@@ -6,9 +6,9 @@
+  * ⚠️ แก้ไขจาก const เป็น var เพื่อให้ไฟล์อื่นในโปรเจกต์สามารถเรียกใช้งานได้ (Global Scope)
+  */
+ var GLOBAL_CONFIG = {
+-  "LINE_CHANNEL_ACCESS_TOKEN": "CIYDprd0GTlbxLQ2L48wTMbbWuOIKwnKD4Mv1wSt+tQJWtCLfPA2nj1RRT26LrvdyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDX1IGkLZEVbpjswfsfE0QhypxbzP6b11R5GvQezVMc4EQdB04t89/1O/w1cDnyilFU=",  // ⚠️ ดึงจาก Script Properties เท่านั้น (ห้ามฝังค่าจริงใน source code)
+-  "GEMINI_API_KEY_LINE": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",        // ⚠️ ดึงจาก Script Properties เท่านั้น
+-  "GEMINI_API_KEY_WEB": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",         // ⚠️ ดึงจาก Script Properties เท่านั้น
++  "LINE_CHANNEL_ACCESS_TOKEN": "CIYDprd0GTlbxLQ2L48wTMbbWuOIKwnKD4Mv1wSt+tQJWtCLfPA2nj1RRT26LrvdyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDX1IGkLZEVbpjswfsfE0QhypxbzP6b11R5GvQezVMc4EQdB04t89/1O/w1cDnyilFU=",
++  "GEMINI_API_KEY_LINE": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
++  "GEMINI_API_KEY_WEB": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
+   "MODEL_NAME": "gemini-2.5-flash",
+   "ADMIN_LINE_IDS": "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e",
+   "SYSTEM_STATUS": "ON",
+@@ -48,9 +48,28 @@ function isAdmin(userId) {
+  */
+ function getDynamicConfig(key, defaultValue) {
+   if (!key) return defaultValue !== undefined ? defaultValue : "";
++  
++  try {
++    // 1. ลองดึงจาก Script Properties ก่อนเป็นอันดับแรก
++    const props = PropertiesService.getScriptProperties();
++    let propValue = props.getProperty(key);
++    
++    // Fallback ให้กับกรณีพิมพ์ชื่อผิด (ADMIN_LINE_ID vs ADMIN_LINE_IDS)
++    if ((!propValue || propValue === "") && key === "ADMIN_LINE_ID") {
++      propValue = props.getProperty("ADMIN_LINE_IDS");
++    }
++    
++    if (propValue !== null && propValue !== "") {
++      return propValue;
++    }
++  } catch (e) {
++    // ถ้าเรียก PropertiesService ไม่ได้ ให้ข้ามไปใช้ GLOBAL_CONFIG
++  }
++
++  // 2. ถ้าใน Properties ไม่มีค่า ให้ไปดึงจาก GLOBAL_CONFIG แทน
+   if (GLOBAL_CONFIG[key] !== undefined && GLOBAL_CONFIG[key] !== "") return GLOBAL_CONFIG[key];
+   
+-  // Fallback for ADMIN_LINE_ID vs ADMIN_LINE_IDS typo in other scripts
++  // Fallback for ADMIN_LINE_ID vs ADMIN_LINE_IDS typo in GLOBAL_CONFIG
+   if (key === "ADMIN_LINE_ID" && GLOBAL_CONFIG["ADMIN_LINE_IDS"]) return GLOBAL_CONFIG["ADMIN_LINE_IDS"];
+   
+   return defaultValue !== undefined ? defaultValue : "";
+diff --git a/v690/WebApp_GeminiTools.js b/v720/WebApp_GeminiTools.js
+index b5efe0a..e3d2382 100644
+--- a/v690/WebApp_GeminiTools.js
++++ b/v720/WebApp_GeminiTools.js
+@@ -32,25 +32,16 @@ function doGet(e) {
+     const adminEmails = getAdminEmailsFromSheet();
+     const isAdmin = adminEmails.includes(userEmail.toLowerCase().trim());
+     const employees = getActiveEmployeesFromSheet();
+-    
+-    let userPhoto = null;
+-    try {
+-      if (typeof AdminDirectory !== 'undefined') {
+-        const userProfile = AdminDirectory.Users.get(userEmail);
+-        userPhoto = userProfile.thumbnailPhotoUrl || null;
+-      }
+-    } catch(e) {}
+ 
+     const appConfig = JSON.stringify({
+       isAdmin:       isAdmin,
+       userEmail:     userEmail,
+-      userPhoto:     userPhoto,
+       adminEmails:   adminEmails,
+       employees:     employees,
+       employeeCount: employees.length,
+       backdateLimit: parseInt(getDynamicConfig("BACKDATE_LIMIT") || "2"),
+       isLocalDev:    false,
+-      buildVersion:  "V.7",
++      buildVersion:  "V.6",
+       timestamp:     new Date().toISOString()
+     });
+ 
+@@ -63,8 +54,7 @@ function doGet(e) {
+     );
+ 
+     return HtmlService.createHtmlOutput(template.evaluate().getContent())
+-      .setTitle('Smart Worksite System V.7')
+-      .setFaviconUrl('https://i.ibb.co/N3w3P9pS/52.png')
++      .setTitle('Smart Worksite System V.6')
+       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+ 
+diff --git a/v690/appsscript.json b/v720/appsscript.json
+index 9af9a5f..79a5266 100644
+--- a/v690/appsscript.json
++++ b/v720/appsscript.json
+@@ -51,7 +51,8 @@
+     "https://www.googleapis.com/auth/spreadsheets",
+     "https://www.googleapis.com/auth/drive",
+     "https://www.googleapis.com/auth/userinfo.email",
++    "https://www.googleapis.com/auth/spreadsheets",
+     "https://www.googleapis.com/auth/script.container.ui",
+-    "https://www.googleapis.com/auth/admin.directory.user.readonly"
++    "https://www.googleapis.com/auth/script.projects"
+   ]
+ }
+\ No newline at end of file
+diff --git a/v690/index.html b/v720/index.html
+index 5ef5470..d22beb2 100644
+--- a/v690/index.html
++++ b/v720/index.html
+@@ -2,8 +2,8 @@
+ <html lang="th">
+ 
+ <head>
+-    <link rel="icon" type="image/png" href="data:image/jpeg;base64,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" />
+-    <link rel="apple-touch-icon" href="data:image/jpeg;base64,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" />
++    <link rel="icon" type="image/png" href="https://i.ibb.co/N3w3P9pS/52.png" />
++    <link rel="apple-touch-icon" href="https://i.ibb.co/N3w3P9pS/52.png" />
+ 
+     <meta name="apple-mobile-web-app-capable" content="yes" />
+     <meta name="mobile-web-app-capable" content="yes" />
+@@ -245,10 +245,6 @@
+                 if (this.state.hasError) {
+                     return (
+                         <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+-                            <div className="header-content">
+-                                <h1>Smart Worksite</h1>
+-                                <p>ระบบบันทึกเวลาและค่าจ้างอัจฉริยะ V.7 (Debug)</p>
+-                            </div>
+                             <div className="bg-white p-6 rounded-2xl shadow-xl border border-red-100 max-w-xl w-full">
+                                 <h2 className="text-xl font-bold text-red-600 mb-2">⚠️ เกิดข้อผิดพลาดในระบบ</h2>
+                                 <p className="text-sm text-slate-600 mb-4">หน้าเว็บไม่สามารถแสดงผลได้ กรุณาตรวจสอบโค้ดตามแจ้งเตือนด้านล่าง:</p>
+@@ -311,7 +307,7 @@
+             }
+         };
+ 
+-        const LOGO_URL = "data:image/jpeg;base64,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";
++        const LOGO_URL = "https://i.ibb.co/N3w3P9pS/52.png";
+ 
+         // ============================================================
+         // 🌐 DICTIONARY FOR MULTI-LANGUAGE TRANSLATION (4 LANGUAGES)
+@@ -1149,13 +1145,10 @@
+                         const customDetails = employeeCustomData[empId] || { note: bulkNote };
+ 
+                         const singlePayload = {
+-                            date: selectedDate,
+-                            site: selectedSite,
+-                            normalHour: Number(workH),
+-                            otTotal: otCalculated,
+-                            employees: [workerName],
+-                            timeIn: bulkStartTime,
+-                            timeOut: bulkEndTime,
++                            workDate: selectedDate,
++                            siteName: selectedSite,
++                            staffName: workerName,
++                            accommodation: workerCamp,
+                             note: customDetails.note || bulkNote,
+                             isAdmin: isAdmin
+                         };
+@@ -1721,7 +1714,6 @@
+             // สิทธิ์การทดสอบ Admin & บันทึกประวัติ
+             const [isAdmin, setIsAdmin] = useState(true);
+             const [userEmail, setUserEmail] = useState('engineer@smartworksite.local');
+-            const [userPhoto, setUserPhoto] = useState(null);
+             const [userRole, setUserRole] = useState('👑 ผู้ดูแลระบบ (Admin)');
+ 
+             // ระบบสลับภาษาใช้งานได้จริง 4 ภาษา
+@@ -1774,7 +1766,6 @@
+                         const config = JSON.parse(bridge.textContent.trim());
+                         setIsAdmin(config.isAdmin !== undefined ? config.isAdmin : true);
+                         setUserEmail(config.userEmail || 'engineer@smartworksite.local');
+-                        if (config.userPhoto) setUserPhoto(config.userPhoto);
+                         setUserRole(config.isAdmin ? '👑 ผู้ดูแลระบบ (Admin)' : '👤 พนักงานทั่วไป (User)');
+                     }
+                 } catch (err) {
+@@ -1901,8 +1892,8 @@
+                                     )}
+                                 </button>
+ 
+-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden ${isAdmin ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-indigo-500'}`} title={userEmail}>
+-                                    {userPhoto ? <img src={userPhoto} alt="Profile" className="w-full h-full object-cover" /> : initials}
++                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isAdmin ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-indigo-500'}`} title={userEmail}>
++                                    {initials}
+                                 </div>
+                             </div>
+                         </div>

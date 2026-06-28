@@ -19,7 +19,8 @@ var CORE_DB = {
 };
 
 function writeToDailySheetBatch(data, userId, fileId) {
-  if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
+  try {
+    if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
   const ss = SpreadsheetApp.openById(fileId);
   const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
   
@@ -54,17 +55,20 @@ function writeToDailySheetBatch(data, userId, fileId) {
     const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
     let rowIndex = -1;
     
-    // 🔒 ปิดระบบ Fuzzy และ Includes: บังคับให้ชื่อต้องตรงกันเป๊ะๆ (Exact Match) 100% เท่านั้น
-    // แต่เพื่อรองรับกรณีที่ชีตลงเวลาใช้แค่ "ชื่อจริง" หรือ "ชื่อ-สกุล" จึงเช็คทั้ง 2 แบบ
-    const firstNameOnly = typeof normalize === 'function' ? normalize(String(emp.firstname).trim().split(/\s+/).filter(w => !w.match(/^(นาย|นาง|น\.?ส\.?|ด\.?ช\.?|ด\.?ญ\.?)$/))[0] || String(emp.firstname).trim().split(/\s+/)[0]) : String(emp.firstname).trim().split(/\s+/)[0];
+    let bestScore = 0;
+    const fuzzyThreshold = parseFloat(typeof getDynamicConfig === 'function' ? getDynamicConfig("FUZZY_THRESHOLD") : 0.8) || 0.8;
     
+    // 🔮 กู้คืนระบบ Fuzzy Logic กลับมาใช้งาน เพื่อป้องกันปัญหาค้นหาชื่อพนักงานไม่พบเวลาพิมพ์ผิดเล็กน้อย
     for (let i = 0; i < block.length; i++) {
-      let raw = block[i][CORE_DB.COL_NAME_CHECK - 1];
-      if (raw && raw.toString().trim() !== "") {
-        const rowName = typeof normalize === 'function' ? normalize(raw) : raw; 
-        if (rowName === inputName || rowName === firstNameOnly) {
-          rowIndex = i; break;
-        }
+      const rowName = typeof normalize === 'function' ? normalize(block[i][CORE_DB.COL_NAME_CHECK - 1]) : block[i][CORE_DB.COL_NAME_CHECK - 1]; 
+      if (!rowName) continue;
+      
+      const score = typeof getStringSimilarity === 'function' ? getStringSimilarity(inputName, rowName) : (rowName === inputName ? 1.0 : 0);
+      
+      if (score === 1.0 || (score >= fuzzyThreshold && score > bestScore)) {
+        bestScore = score;
+        rowIndex = i;
+        if (score === 1.0) break; // ตรงเป๊ะออกเลย
       }
     }
 
@@ -88,23 +92,16 @@ function writeToDailySheetBatch(data, userId, fileId) {
       }
       successCount++;
     } else {
-      let debugStr = "in:'" + inputName + "', db:";
-      let count = 0;
-      for(let k=0; k<block.length; k++) {
-         let raw = block[k][CORE_DB.COL_NAME_CHECK - 1];
-         if (raw && raw.toString().trim() !== "") {
-           let rName = typeof normalize === 'function' ? normalize(raw) : raw;
-           debugStr += "'" + rName + "',";
-           count++;
-           if(count >= 3) break;
-         }
-      }
-      errors.push(emp.firstname + " (" + debugStr + ")");
+      errors.push(emp.firstname);
     }
   });
 
-  blockRange.setValues(block);
-  return { count: successCount, errors: errors };
+    blockRange.setValues(block);
+    return { count: successCount, errors: errors };
+  } catch (err) {
+    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "writeToDailySheetBatch", err.message);
+    return { count: 0, errors: ["เกิดข้อผิดพลาดภายในระบบ: " + err.message] };
+  }
 }
 
 /**

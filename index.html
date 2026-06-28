@@ -245,10 +245,6 @@
                 if (this.state.hasError) {
                     return (
                         <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-                            <div className="header-content">
-                                <h1>Smart Worksite</h1>
-                                <p>ระบบบันทึกเวลาและค่าจ้างอัจฉริยะ V.7 (Debug)</p>
-                            </div>
                             <div className="bg-white p-6 rounded-2xl shadow-xl border border-red-100 max-w-xl w-full">
                                 <h2 className="text-xl font-bold text-red-600 mb-2">⚠️ เกิดข้อผิดพลาดในระบบ</h2>
                                 <p className="text-sm text-slate-600 mb-4">หน้าเว็บไม่สามารถแสดงผลได้ กรุณาตรวจสอบโค้ดตามแจ้งเตือนด้านล่าง:</p>
@@ -1721,6 +1717,7 @@
             // สิทธิ์การทดสอบ Admin & บันทึกประวัติ
             const [isAdmin, setIsAdmin] = useState(true);
             const [userEmail, setUserEmail] = useState('engineer@smartworksite.local');
+            const [userPhoto, setUserPhoto] = useState(null);
             const [userRole, setUserRole] = useState('👑 ผู้ดูแลระบบ (Admin)');
 
             // ระบบสลับภาษาใช้งานได้จริง 4 ภาษา
@@ -1773,6 +1770,7 @@
                         const config = JSON.parse(bridge.textContent.trim());
                         setIsAdmin(config.isAdmin !== undefined ? config.isAdmin : true);
                         setUserEmail(config.userEmail || 'engineer@smartworksite.local');
+                        if (config.userPhoto) setUserPhoto(config.userPhoto);
                         setUserRole(config.isAdmin ? '👑 ผู้ดูแลระบบ (Admin)' : '👤 พนักงานทั่วไป (User)');
                     }
                 } catch (err) {
@@ -1899,8 +1897,8 @@
                                     )}
                                 </button>
 
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isAdmin ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-indigo-500'}`} title={userEmail}>
-                                    {initials}
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden ${isAdmin ? 'bg-amber-500 ring-2 ring-amber-300' : 'bg-indigo-500'}`} title={userEmail}>
+                                    {userPhoto ? <img src={userPhoto} alt="Profile" className="w-full h-full object-cover" /> : initials}
                                 </div>
                             </div>
                         </div>
