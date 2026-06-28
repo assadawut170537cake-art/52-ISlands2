@@ -8,3 +8,6 @@ update_review.js
 .antigravity/**
 .git/**
 .github/**
+
+archive/**
+backups/**
