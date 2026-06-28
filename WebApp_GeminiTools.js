@@ -32,25 +32,16 @@ function doGet(e) {
     const adminEmails = getAdminEmailsFromSheet();
     const isAdmin = adminEmails.includes(userEmail.toLowerCase().trim());
     const employees = getActiveEmployeesFromSheet();
-    
-    let userPhoto = null;
-    try {
-      if (typeof AdminDirectory !== 'undefined') {
-        const userProfile = AdminDirectory.Users.get(userEmail);
-        userPhoto = userProfile.thumbnailPhotoUrl || null;
-      }
-    } catch(e) {}
 
     const appConfig = JSON.stringify({
       isAdmin:       isAdmin,
       userEmail:     userEmail,
-      userPhoto:     userPhoto,
       adminEmails:   adminEmails,
       employees:     employees,
       employeeCount: employees.length,
       backdateLimit: parseInt(getDynamicConfig("BACKDATE_LIMIT") || "2"),
       isLocalDev:    false,
-      buildVersion:  "V.7",
+      buildVersion:  "V.6",
       timestamp:     new Date().toISOString()
     });
 
@@ -63,8 +54,7 @@ function doGet(e) {
     );
 
     return HtmlService.createHtmlOutput(template.evaluate().getContent())
-      .setTitle('Smart Worksite System V.7')
-      .setFaviconUrl('https://i.ibb.co/N3w3P9pS/52.png')
+      .setTitle('Smart Worksite System V.6')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
 
@@ -435,19 +425,3 @@ function logError(fnName, errMsg, context) {
     console.error("logError failed: " + e.message);
   }
 }
-
-// ============================================================
-// FUNCTION: fetchGeminiServer (Generic Gemini API Wrapper)
-// ============================================================
-function fetchGeminiServer(prompt, systemInstruction) {
-  try {
-    if (!prompt) return "Error: No prompt provided";
-    // callGemini returns string directly
-    const result = callGemini(prompt, systemInstruction || "", false, true); 
-    return { success: true, result: result };
-  } catch (err) {
-    logError("fetchGeminiServer", err.message, prompt);
-    return { success: false, error: err.message };
-  }
-}
-

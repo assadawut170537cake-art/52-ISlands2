@@ -46,11 +46,20 @@ function onOpen() {
     .addItem('📝 บันทึกการอัปเดต (Changelog)', 'promptChangelog')
     .addItem('📝 ตรวจสอบฟังชั้นซ้ำ (ฟังชั้นเค้ก)', 'mergeDuplicateFunctions')
     .addItem('📝 อัปเดตโค้ด (ฟังชั้นเค้ก)', 'showDevOpsInjectorSidebar')
+    .addItem('🔥 ฟังก์ชันพิเศษ (รอการระบุ)', 'placeholderSpecialFunction')
     .addToUi();
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const workspaceSheet = ss.getSheetByName(SHEET_WORKSPACE);
   if (workspaceSheet) ss.setActiveSheet(workspaceSheet);
+}
+
+/**
+ * ฟังก์ชันสำหรับเชื่อมต่อโค้ดพิเศษที่คุณจะส่งให้
+ */
+function placeholderSpecialFunction() {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert("🔥 ระบบรอรับโค้ดพิเศษ", "โปรดส่งโค้ดฟังก์ชันที่คุณต้องการให้ AI เข้ามาผสานลงในปุ่มนี้ผ่านทางแชทอีกครั้งครับ", ui.ButtonSet.OK);
 }
 
 /**

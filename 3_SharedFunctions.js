@@ -259,7 +259,10 @@ function getEmployeesByCodes(codes) {
     const sheet = SpreadsheetApp.openById(GLOBAL_CONFIG.EXTERNAL_DATABASE_ID).getSheetByName(GLOBAL_CONFIG.DATABASE_SHEET_NAME);
     const data = sheet.getRange(2, 1, sheet.getLastRow(), 14).getValues();
     return data.filter(r => codes.includes(String(r[13]).trim())).map(r => ({ code: r[13], firstname: r[2], lastname: r[3] }));
-  } catch (e) { return []; }
+  } catch (e) { 
+    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "getEmployeesByCodes", e.message);
+    return []; 
+  }
 }
 
 // =================================================================
@@ -397,7 +400,9 @@ function parseThaiDate(s) {
  * @param {string} errorMessage - รายละเอียดข้อผิดพลาดเชิงลึก
  */
 function logAuditTrail(actionType, status, payload, user, execTime, level, errorMessage) {
+  const lock = LockService.getDocumentLock();
   try {
+    lock.waitLock(10000);
     const ss = SpreadsheetApp.getActiveSpreadsheet(); // หากต้องการชี้ไปไฟล์อื่นให้ใช้ openById
     const sheetName = "AuditLog";
     let sheet = ss.getSheetByName(sheetName);
@@ -434,6 +439,8 @@ function logAuditTrail(actionType, status, payload, user, execTime, level, error
   } catch (e) {
     // ปราการด่านสุดท้าย ไม่ให้ระบบหลักล่มหาก Audit พัง
     console.error(`[CRITICAL] ระบบ AuditTrail ล้มเหลว: ${e.message}`);
+  } finally {
+    lock.releaseLock();
   }
 }
 // =================================================================

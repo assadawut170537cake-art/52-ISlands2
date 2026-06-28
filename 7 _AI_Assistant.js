@@ -283,14 +283,26 @@ function getDynamicPrompt(role) {
   const validNames = typeof getValidNamesForAI === 'function' ? getValidNamesForAI() : "ไม่สามารถดึงรายชื่อได้";
   const currentLogic = typeof getCurrentLogic === 'function' ? getCurrentLogic() : { ot_rule: "standard", backdate_limit: 2, allow_overtime_noon: true };
   
-  return `คุณคือ AI ผู้ช่วยประจำระบบ Smart Worksite System
-  รายชื่อพนักงานในระบบปัจจุบัน: ${validNames}
-  ตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}
+  return `[Role & Core Objective]
+คุณคือระบบคัดกรองและประมวลผลข้อมูลอัตโนมัติของ LINE Bot ที่ทำหน้าที่จัดการข้อมูลเวลาทำงานและโอที คุณต้องปฏิบัติตามกฎการคัดกรองข้อมูลอย่างเคร่งครัด หากไม่ตรงเงื่อนไข ห้ามตอบกลับใดๆ ทั้งสิ้น (Silent Ignore)
 
-  หน้าที่และวิธีการตอบกลับ:
-  1. แนะนำการใช้งาน (Guide): หากผู้ใช้ถามวิธีใช้แอป ให้ตอบอธิบายสั้น กระชับ สุภาพ สไตล์พี่สอนน้อง เป็นข้อๆ 
-  2. บันทึกงาน (Natural Language Input): หากผู้ใช้สั่งงานด้วยภาษาทั่วไป ให้แปลงเป็นโครงสร้าง JSON ตามที่ระบบกำหนด
-  สรุปใจความสำคัญไว้บรรทัดแรกเสมอ ใช้ภาษาสุภาพ เป็นกันเอง`;
+[Rules for Text Messages (ข้อความตัวอักษร)]
+1. ตรวจสอบสัญลักษณ์นำหน้า: 
+   - หากข้อความเริ่มต้นด้วยเครื่องหมาย "#" -> ให้ประมวลผลตามคำสั่งนั้นต่อไป
+   - หากข้อความ "ไม่มี" เครื่องหมาย "#" นำหน้า -> ให้ข้าม (Ignore) และไม่ตอบกลับใดๆ *ยกเว้น* กรณีในข้อ 2 และ 3
+2. ข้อยกเว้นระบบโอที: หากเป็นข้อความตอบกลับอัตโนมัติที่เกิดจากการระบบถามสถานที่ทำโอที (เช่น มีคำสำคัญเกี่ยวกับ สถานที่, โอที, Site Work) -> ให้ประมวลผลต่อ
+3. ข้อยกเว้นการกดปุ่ม: หากข้อความเป็นผลลัพธ์มาจากการที่บอทส่งคำถามไปก่อนหน้า แล้วผู้ใช้กดปุ่มตอบกลับ (Quick Reply / Template Buttons / Postback Text) -> ให้ประมวลผลต่อ
+
+[Rules for Image Messages (รูปภาพ)]
+1. วิเคราะห์ประเภทรูปภาพอย่างแม่นยำ:
+   - อนุญาตเฉพาะ "รูปบัตรตอก" (Timecard / ตารางเวลาทำงาน) หรือ "รูปถ่ายของบุคคล (Face/ID Photo)" ที่ใช้เพื่อระบุตัวตนในการเข้างานเท่านั้น -> ให้ประมวลผลต่อ
+2. รูปภาพประเภทอื่นทั้งหมด: หากไม่ใช่รูปบัตรตอกหรือรูปเพื่อระบุตัวตน (เช่น รูปหน้างาน, รูปสิ่งแวดล้อม, รูปสินค้า) -> ให้ข้าม (Ignore) และไม่ต้องตอบกลับใดๆ ทั้งสิ้น
+
+[Output Control]
+- หากข้อความหรือรูปภาพใดๆ ไม่ผ่านเงื่อนไขข้อยกเว้นข้างต้น ห้ามส่งข้อความตอบกลับ ห้ามแสดง Error และห้ามพิมพ์สิ่งใดตอบกลับไปในแชทเด็ดขาด
+
+รายชื่อพนักงานในระบบปัจจุบัน: ${validNames}
+ตรรกะควบคุมระบบปัจจุบัน: ${JSON.stringify(currentLogic)}`;
 }
 
 function setDynamicPrompt(role, promptText) {
@@ -345,3 +357,105 @@ function getProjectSourceCode() {
  * @param {string} systemInstruction คำสั่งพื้นฐาน (System Prompt)
  * @param {boolean} isJson ต้องการผลลัพธ์เป็น JSON หรือไม่
  */
+function callGemini(prompt, systemInstruction, isJson) {
+  try {
+    const apiKey = getDynamicConfig("GEMINI_API_KEY_WEB"); // ดึง API Key จาก config
+    const model = getDynamicConfig("MODEL_NAME") || "gemini-1.5-flash"; // ใช้ model จาก config
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const payload = {
+      "contents": [{
+        "parts": [{ "text": systemInstruction + "\n\nUser: " + prompt }]
+      }],
+      "generationConfig": {
+        "responseMimeType": isJson ? "application/json" : "text/plain"
+      }
+    };
+
+    const options = {
+      "method": "post",
+      "contentType": "application/json",
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    const result = JSON.parse(response.getContentText());
+
+    if (result.candidates && result.candidates[0].content.parts[0].text) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      console.error("Gemini Error:", result);
+      return null;
+    }
+  } catch (e) {
+    console.error("Call Gemini Exception: " + e.message);
+    return null;
+  }
+}
+
+// ⚠️ [CONSOLIDATED] checkIsAdmin() ถูกลบออก — ใช้ isAdmin() จาก Config.gs แทนเป็นแหล่งเดียว
+// ป้องกันลอจิกตรวจสอบ Admin ทำงานไม่สอดคล้องกัน (ตัวนี้ใช้ ADMIN_LINE_ID แต่ตัวหลักใช้ ADMIN_LINE_IDS)
+
+// =================================================================
+// 📱 SOURCE HANDLERS (อัปเดตระบบ Hook)
+// =================================================================
+async function handleLineWebhook(json) {
+  let globalReplyToken = null;
+  try {
+    const event = json.events[0];
+    if (!event) return ContentService.createTextOutput("OK");
+
+    const { replyToken, source, message } = event;
+    globalReplyToken = replyToken; 
+    const userId = source.userId;
+    const groupId = source.groupId; // ดึง groupId
+    
+    // 🛡️ [GUARD CLAUSE]: ตรวจสอบ Group Whitelist
+    if (source.type === "group" && !isAllowedGroup(groupId)) {
+      logSystemEvent("BLOCKED_GROUP", "LINE_BOT", `Group ID: ${groupId} rejected.`);
+      return ContentService.createTextOutput("OK"); // Silent Ignore
+    }
+    
+    const adminId = (typeof getDynamicConfig === 'function' ? getDynamicConfig("ADMIN_LINE_ID") : "") || "";
+    const adminList = adminId.split(",").map(id => id.trim());
+    
+    if (message && message.type === "text") {
+      const msg = message.text.trim();
+
+      const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
+      if (source.type === "user" && !isUserAdmin) {
+        if (typeof reply === 'function') reply(replyToken, "⚠️ ขออภัยครับ บอทรับลงรายงานเฉพาะใน 'ไลน์กลุ่ม' เท่านั้นครับ 🙏");
+        return ContentService.createTextOutput("OK");
+      }
+
+      const cache = CacheService.getScriptCache();
+      const pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
+      const pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
+      const pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+
+      if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
+        cache.removeAll([`PENDING_CLOCKIN_${userId}`, `PENDING_OT_CONFIRM_${userId}`, `PENDING_OT_DETAILS_${userId}`]);
+        logSystemEvent("CACHE_CLEARED", "LINE_BOT", `Cleared pending states for: ${userId}`);
+      }
+
+      // 🤖 [HOOK]: ลอจิกแชทบอท LINE ทำงานต่อตรงนี้ (Flexible Name Matching)
+      const extractedEmployees = extractEmployeesFromText(msg);
+      if (extractedEmployees.length > 0) {
+        logSystemEvent("NAME_MATCHED", "LINE_BOT", `Found ${extractedEmployees.length} emps from ${userId}`);
+        
+        // จำลองข้อมูลเบื้องต้น รอการเติมข้อมูลจาก Regex หรือ AI ต่อไป
+        const mockInfo = { date: "วันนี้", time: "รอแก้ไข", site: "รอแก้ไข" };
+        const replyMsg = formatResponse(extractedEmployees, mockInfo);
+        
+        if (typeof reply === 'function') reply(replyToken, replyMsg);
+      }
+    }
+    return ContentService.createTextOutput("OK");
+
+  } catch (err) {
+    logSystemEvent("LINE_HANDLER_ERROR", "LINE_BOT", err.message);
+    if (globalReplyToken && typeof reply === 'function') reply(globalReplyToken, "⚠️ ระบบขัดข้องชั่วคราว (Code: LINE_ERR)");
+    return ContentService.createTextOutput("Error");
+  }
+}
