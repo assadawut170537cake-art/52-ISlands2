@@ -19,7 +19,8 @@ var CORE_DB = {
 };
 
 function writeToDailySheetBatch(data, userId, fileId) {
-  if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
+  try {
+    if (!fileId) return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"] };
   const ss = SpreadsheetApp.openById(fileId);
   const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
   
@@ -87,8 +88,12 @@ function writeToDailySheetBatch(data, userId, fileId) {
     }
   });
 
-  blockRange.setValues(block);
-  return { count: successCount, errors: errors };
+    blockRange.setValues(block);
+    return { count: successCount, errors: errors };
+  } catch (err) {
+    if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "writeToDailySheetBatch", err.message);
+    return { count: 0, errors: ["เกิดข้อผิดพลาดภายในระบบ: " + err.message] };
+  }
 }
 
 /**
