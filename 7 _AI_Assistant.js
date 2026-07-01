@@ -142,34 +142,57 @@ function validateLogic(parsed) {
   return incomingKeys.every(function(key) { return allowedKeys.indexOf(key) !== -1; });
 }
 
+/**
+ * หน้าที่: ดึงข้อมูลกฎระบบปัจจุบันจากหน่วยความจำ
+ * พารามิเตอร์: ไม่มี
+ * คืนค่า: Object (โครงสร้างกฎปัจจุบัน)
+ */
 function getCurrentLogic() {
-  var scriptProperties = PropertiesService.getScriptProperties();
-  var savedLogic = scriptProperties.getProperty('DYNAMIC_SYSTEM_LOGIC');
-  if (savedLogic) return JSON.parse(savedLogic);
-  
-  return {
-    ot_rule: "standard",
-    backdate_limit: parseInt(scriptProperties.getProperty("BACKDATE_LIMIT_DAYS") || "2"),
-    allow_overtime_noon: true
-  };
+  try {
+    var scriptProperties = PropertiesService.getScriptProperties();
+    var savedLogic = scriptProperties.getProperty('DYNAMIC_SYSTEM_LOGIC');
+    if (savedLogic) return JSON.parse(savedLogic);
+    
+    return {
+      ot_rule: "standard",
+      backdate_limit: parseInt(getDynamicConfig("BACKDATE_LIMIT_DAYS") || "2"),
+      allow_overtime_noon: true
+    };
+  } catch (err) {
+    console.error("Error in getCurrentLogic: " + err.message);
+    return { ot_rule: "standard", backdate_limit: 2, allow_overtime_noon: true };
+  }
 }
 
+/**
+ * หน้าที่: บันทึกประวัติการเปลี่ยนแปลงกฎระบบ (จำกัด 5 รายการล่าสุด)
+ * พารามิเตอร์: 
+ *   - logicObj (Object): โครงสร้างกฎ
+ *   - updatedBy (String): ชื่อผู้อัปเดต
+ *   - action (String): ประเภทการกระทำ (update, rollback)
+ *   - note (String): บันทึกเพิ่มเติม
+ * คืนค่า: ไม่มี (void)
+ */
 function addLogicHistory(logicObj, updatedBy, action, note) {
-  var props = PropertiesService.getScriptProperties();
-  var history = props.getProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY');
-  history = history ? JSON.parse(history) : [];
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var historyStr = props.getProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY');
+    var history = (historyStr) ? JSON.parse(historyStr) : [];
 
-  var timestamp = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
-  history.unshift({
-    logic: logicObj,
-    timestamp: timestamp,
-    updatedBy: updatedBy,
-    action: action,
-    note: note
-  });
+    var timestamp = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
+    history.unshift({
+      logic: logicObj,
+      timestamp: timestamp,
+      updatedBy: updatedBy,
+      action: action,
+      note: note
+    });
 
-  if (history.length > 5) history = history.slice(0, 5);
-  props.setProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY', JSON.stringify(history));
+    if (history.length > 5) history = history.slice(0, 5);
+    props.setProperty('DYNAMIC_SYSTEM_LOGIC_HISTORY', JSON.stringify(history));
+  } catch (err) {
+    console.error("Error in addLogicHistory: " + err.message);
+  }
 }
 
 function rollbackLogic(userId, step) {
@@ -208,38 +231,47 @@ function rollbackLogic(userId, step) {
 
 
 
+/**
+ * หน้าที่: รันคำสั่ง CLI จำลองสำหรับ DevOps จากภายนอก
+ * พารามิเตอร์: 
+ *   - commandString (String): คำสั่งและอาร์กิวเมนต์
+ * คืนค่า: String (JSON แสดงผลลัพธ์การทำงาน)
+ */
 function runDevOpsCliCommand(commandString) {
-  var args = commandString.trim().split(" ");
-  var rootCommand = args[0];
-  var props = PropertiesService.getScriptProperties();
-  
-  if (rootCommand === "rollback") {
-    var step = 1; var user = "SYSTEM";
-    args.forEach(function(arg) {
-      if (arg.indexOf("--step=") === 0) step = parseInt(arg.split("=")[1]) || 1;
-      if (arg.indexOf("--user=") === 0) user = arg.split("=")[1];
-    });
-    var res = rollbackLogic(user, step);
-    return JSON.stringify(res);
-  }
-  
-  if (rootCommand === "system-scan") {
-    var current = getCurrentLogic();
-    var isLockHealthy = true;
-    try {
-      var lock = LockService.getScriptLock();
-      if (lock.tryLock(50)) lock.releaseLock();
-    } catch (e) { isLockHealthy = false; }
+  try {
+    var args = commandString.trim().split(" ");
+    var rootCommand = args[0];
     
-    return JSON.stringify({
-      status: "PASS",
-      timestamp: new Date().toISOString(),
-      active_logic: current,
-      concurrency_lock_operational: isLockHealthy
-    });
+    if (rootCommand === "rollback") {
+      var step = 1; var user = "SYSTEM";
+      args.forEach(function(arg) {
+        if (arg.indexOf("--step=") === 0) step = parseInt(arg.split("=")[1]) || 1;
+        if (arg.indexOf("--user=") === 0) user = arg.split("=")[1];
+      });
+      var res = rollbackLogic(user, step);
+      return JSON.stringify(res);
+    }
+    
+    if (rootCommand === "system-scan") {
+      var current = getCurrentLogic();
+      var isLockHealthy = true;
+      try {
+        var lock = LockService.getScriptLock();
+        if (lock.tryLock(50)) lock.releaseLock();
+      } catch (e) { isLockHealthy = false; }
+      
+      return JSON.stringify({
+        status: "PASS",
+        timestamp: new Date().toISOString(),
+        active_logic: current,
+        concurrency_lock_operational: isLockHealthy
+      });
+    }
+    
+    return JSON.stringify({ status: "FAIL", error: "DevOps Integration Syntax Error" });
+  } catch (err) {
+    return JSON.stringify({ status: "ERROR", error: err.message });
   }
-  
-  return JSON.stringify({ status: "FAIL", error: "DevOps Integration Syntax Error" });
 }
 
 // ==========================================

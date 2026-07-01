@@ -2,16 +2,58 @@
 // 1_LineBot.gs (ด่านหน้ารับข้อความ Line, ChatOps, และลอจิกแชทบอท)
 // =================================================================
 
+/**
+ * ส่งข้อความกลับไปยัง LINE (Reply)
+ * @param {string} tk - Reply Token
+ * @param {string} m - ข้อความ
+ * @returns {boolean} - true หากส่งสำเร็จ
+ */
 function reply(tk, m) {
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN')
-    },
-    method: 'post',
-    payload: JSON.stringify({ replyToken: tk, messages: [{ type: 'text', text: m }] }),
-    muteHttpExceptions: true
-  });
+  try {
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN')
+      },
+      method: 'post',
+      payload: JSON.stringify({ replyToken: tk, messages: [{ type: 'text', text: m }] }),
+      muteHttpExceptions: true
+    });
+    return res.getResponseCode() === 200;
+  } catch (e) {
+    console.error("reply error: " + e.message);
+    return false;
+  }
+}
+
+/**
+ * ส่งข้อความแบบ Push ไปยังผู้ใช้ (ใช้เมื่อ Reply Token หมดอายุ หรือต้องการแจ้งเตือนโดยตรง)
+ * @param {string} userId - LINE User ID
+ * @param {string} msg - ข้อความที่จะส่ง
+ * @returns {boolean} - true หากส่งสำเร็จ
+ */
+function pushMessage(userId, msg) {
+  try {
+    const LINE_TOKEN = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
+    if (!LINE_TOKEN) return false;
+    const payload = {
+      to: userId,
+      messages: [{ type: 'text', text: msg }]
+    };
+    const res = UrlFetchApp.fetch("https://api.line.me/v2/bot/message/push", {
+      method: "post",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + LINE_TOKEN
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    return res.getResponseCode() === 200;
+  } catch(e) {
+    console.error("pushMessage error: " + e.message);
+    return false;
+  }
 }
 
 /**
@@ -611,7 +653,17 @@ async function finalizeClockInSaving(data, userId, token, check, customOt, targe
   let displaySite = data.default_site; if (customOtSite) displaySite += `\n[ไซต์ OT: ${customOtSite} | งาน OT: ${customOtTask}]`;
   const accomText = data.default_Accom || writeRes.accom || 'ไม่ได้ระบุ';
 
-  reply(token, `${writeRes.count === 0 ? "❌ ไม่พบข้อมูล" : `✅ บันทึกสำเร็จ ${writeRes.count} คน`}${data.date ? `\n📅 วันที่: ${data.date}` : ""}\n${timeStatus}\nไซต์: ${displaySite}\n[ที่พัก: ${accomText}]${isTesting ? "\n🧪 [โหมดทดสอบ]" : ""}${txt ? "\n" + txt : ""}\n\n📌 โปรดตรวจเช็คความถูกต้อง หากผิดพลาดแจ้งแอดมินทันที`);
+  const replyText = `${writeRes.count === 0 ? "❌ ไม่พบข้อมูล" : `✅ บันทึกสำเร็จ ${writeRes.count} คน`}${data.date ? `\n📅 วันที่: ${data.date}` : ""}\n${timeStatus}\nไซต์: ${displaySite}\n[ที่พัก: ${accomText}]${isTesting ? "\n🧪 [โหมดทดสอบ]" : ""}${txt ? "\n" + txt : ""}\n\n📌 โปรดตรวจเช็คความถูกต้อง หากผิดพลาดแจ้งแอดมินทันที`;
+
+  // บังคับใช้ Push Message สำหรับกรณีที่มีการระบุรายละเอียด OT หรือพึ่งพา Fallback กรณี Token หมดอายุ
+  let replySuccess = false;
+  if (!customOt) {
+    replySuccess = reply(token, replyText);
+  }
+  
+  if (customOt || !replySuccess) {
+    pushMessage(userId, replyText);
+  }
 }
 
 async function handleImageProcess(mId, tk, uId) {

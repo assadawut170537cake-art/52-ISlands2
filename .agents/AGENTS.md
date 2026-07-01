@@ -1,0 +1,1 @@
+> **Auto-Update Document:** Whenever you modify or add features to the project codebase, you MUST review and update the `PROJECT_STRUCTURE.md` file to ensure it accurately reflects the current structure, functions, and logic of the project.
