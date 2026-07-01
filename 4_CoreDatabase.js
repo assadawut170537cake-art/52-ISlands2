@@ -48,6 +48,20 @@ function writeToDailySheetBatch(data, userId, fileId) {
   const blockRange = sheet.getRange(startRow, 1, numRows, fullCols);
   const block = blockRange.getValues();
   
+  // 🔮 โหลดรายชื่อจากชีต DATA (คอลัมน์ B) มาใช้อ้างอิงเพื่อความแม่นยำสูงสุด
+  let dataSheetName = "DATA";
+  if (typeof getDynamicConfig === 'function') dataSheetName = getDynamicConfig("SHEET_DATA") || "DATA";
+  let masterSheet = ss.getSheetByName(dataSheetName);
+  let masterNames = [];
+  if (masterSheet) {
+    const mlr = masterSheet.getLastRow();
+    if (mlr >= startRow) {
+      // คอลัมน์ B คือ Index 2
+      const rawMaster = masterSheet.getRange(startRow, 2, mlr - startRow + 1, 1).getValues();
+      masterNames = rawMaster.map(r => r[0]);
+    }
+  }
+
   let successCount = 0; 
   let errors = [];
 
@@ -58,9 +72,17 @@ function writeToDailySheetBatch(data, userId, fileId) {
     let bestScore = 0;
     const fuzzyThreshold = parseFloat(typeof getDynamicConfig === 'function' ? getDynamicConfig("FUZZY_THRESHOLD") : 0.8) || 0.8;
     
-    // 🔮 กู้คืนระบบ Fuzzy Logic กลับมาใช้งาน เพื่อป้องกันปัญหาค้นหาชื่อพนักงานไม่พบเวลาพิมพ์ผิดเล็กน้อย
+    // 🔮 ค้นหาพนักงานโดยอ้างอิงจากชีต DATA (คอลัมน์ B) เป็นหลัก
     for (let i = 0; i < block.length; i++) {
-      const rowName = typeof normalize === 'function' ? normalize(block[i][CORE_DB.COL_NAME_CHECK - 1]) : block[i][CORE_DB.COL_NAME_CHECK - 1]; 
+      let rawName = "";
+      // ถ้ามีรายชื่อใน DATA ให้ใช้อ้างอิงจาก DATA, ถ้าไม่มีใช้จาก daily sheet (คอลัมน์ D) กันเหนียว
+      if (masterNames && masterNames[i]) {
+         rawName = masterNames[i];
+      } else {
+         rawName = block[i][CORE_DB.COL_NAME_CHECK - 1]; 
+      }
+
+      const rowName = typeof normalize === 'function' ? normalize(rawName) : rawName; 
       if (!rowName) continue;
       
       const score = typeof getStringSimilarity === 'function' ? getStringSimilarity(inputName, rowName) : (rowName === inputName ? 1.0 : 0);

@@ -222,11 +222,20 @@ function handleLineWebhook(requestData, e) {
         const hasHash = msg.startsWith("#");
         const hasPendingState = !!(pendingClockIn12 || pendingOTConfirm || pendingOTDetails);
         
-        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin) {
+        // เช็คคร่าวๆ ว่าผู้ใช้ส่งข้อความลงเวลาใหม่เข้ามาหรือไม่ (มีคำว่า เข้า และมีตัวเลขลำดับคน)
+        let isTimesheet = false;
+        if (!hasHash && !isPostback) {
+            if (/(.+?)\s+เข้า\s+(.+?)/.test(msg) && /\d+\./.test(msg)) {
+                isTimesheet = true;
+            }
+        }
+        
+        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin && !isTimesheet) {
           return ContentService.createTextOutput("OK");
         }
 
-        if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
+        // หากเป็นการส่งข้อมูลลงเวลาใหม่ หรือพิมพ์ # เพื่อเคลียร์คำสั่ง ให้ยกเลิก State เดิมที่ค้างอยู่
+        if ((hasHash || isTimesheet) && hasPendingState) {
           try {
             cache.remove(`PENDING_CLOCKIN_${userId}`);
             cache.remove(`PENDING_OT_CONFIRM_${userId}`);
@@ -234,7 +243,7 @@ function handleLineWebhook(requestData, e) {
           } catch(cacheRemErr) {
             console.error("Cache Remove Error:", cacheRemErr);
           }
-          if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
+          if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยการส่งรายการใหม่หรือเครื่องหมาย #");
           pendingClockIn12 = null; pendingOTConfirm = null; pendingOTDetails = null;
         }
 
@@ -255,13 +264,15 @@ function handleLineWebhook(requestData, e) {
         // 2. จัดการ State: ยืนยันทำโอที
         if (pendingOTConfirm) {
           let dataToProcess = JSON.parse(pendingOTConfirm);
-          if (msg === "ทำที่เดิม/งานเดิม") {
+          let ans = msg.trim().toLowerCase();
+          
+          if (ans === "ทำที่เดิม/งานเดิม" || ans === "ทำที่เดิม" || ans === "ใช่" || ans === "ใช่ครับ" || ans === "yes") {
             try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
             if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, null);
             return ContentService.createTextOutput("OK");
           }
-          else if (msg === "เปลี่ยนไซต์/เปลี่ยนงาน") {
+          else if (ans === "เปลี่ยนไซต์/เปลี่ยนงาน" || ans === "เปลี่ยนไซต์" || ans === "ไม่ใช่" || ans === "เปลี่ยน" || ans === "no") {
             try { 
               cache.remove(`PENDING_OT_CONFIRM_${userId}`);
               cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300);
@@ -270,10 +281,14 @@ function handleLineWebhook(requestData, e) {
             if (typeof reply === "function") reply(globalReplyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
             return ContentService.createTextOutput("OK");
           }
-          else if (msg === "ยกเลิกลงเวลา") {
+          else if (ans === "ยกเลิกลงเวลา" || ans === "ยกเลิก" || ans === "cancel") {
             try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
+            return ContentService.createTextOutput("OK");
+          } else {
+            // หากพิมพ์ข้อความอื่นที่ไม่ตรงกับตัวเลือก และไม่ใช่การส่งเวลาใหม่
+            if (typeof reply === "function") reply(globalReplyToken, "⚠️ กรุณากดปุ่มเพื่อยืนยัน หรือพิมพ์คำตอบให้ตรงกับปุ่ม (ทำที่เดิม/งานเดิม, เปลี่ยนไซต์/เปลี่ยนงาน, ยกเลิกลงเวลา)");
             return ContentService.createTextOutput("OK");
           }
         }
