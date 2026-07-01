@@ -329,7 +329,7 @@ function parseThaiDate(s) {
  * @param {string} errorMessage - รายละเอียดข้อผิดพลาดเชิงลึก
  */
 function logAuditTrail(userId, actionType, inputRaw, machineStructured, confidence, userAction, executionMessage) {
-  const lock = LockService.getScriptLock();
+  const lock = LockService.getDocumentLock();
   try {
     lock.waitLock(10000);
     

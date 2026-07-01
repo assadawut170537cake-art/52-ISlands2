@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps Architecture Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #0f172a;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col p-6">
+
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-700 pb-4 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
+        <i class="fa-solid fa-laptop-code text-emerald-400"></i>
+        Smart Worksite <span class="text-emerald-400 font-mono text-lg bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800">DevOps V.6</span>
+      </h1>
+      <p class="text-sm text-slate-400 mt-1">แผงควบคุมสรุปโครงสร้างสถาปัตยกรรมโปรเจกต์และตรวจสอบความเชี่ยวชาญของซอร์สโค้ด</p>
+    </div>
+    <div class="flex items-center gap-3 mt-4 md:mt-0">
+      <button onclick="loadDashboardData()" class="bg-slate-800 hover:bg-slate-700 text-white font-medium text-sm px-4 py-2 rounded-lg border border-slate-600 transition flex items-center gap-2 cursor-pointer">
+        <i class="fa-solid fa-rotate"></i> รีเฟรชข้อมูล
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+      <div class="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 text-xl"><i class="fa-solid fa-folder-tree"></i></div>
+      <div>
+        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">ไฟล์ในโปรเจกต์ทั้งหมด</p>
+        <h3 id="metric-files" class="text-2xl font-bold text-white mt-0.5">0</h3>
+      </div>
+    </div>
+    <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+      <div class="w-12 h-12 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-xl"><i class="fa-solid fa-code-branch"></i></div>
+      <div>
+        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">ฟังก์ชันที่ตรวจพบ</p>
+        <h3 id="metric-funcs" class="text-2xl font-bold text-white mt-0.5">0</h3>
+      </div>
+    </div>
+    <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+      <div class="w-12 h-12 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400 text-xl"><i class="fa-solid fa-brain"></i></div>
+      <div>
+        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">AI วิเคราะห์สำเร็จ</p>
+        <h3 id="metric-ai" class="text-2xl font-bold text-purple-300 mt-0.5">0</h3>
+      </div>
+    </div>
+    <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex items-center gap-4 shadow-sm">
+      <div class="w-12 h-12 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400 text-xl"><i class="fa-solid fa-hourglass-half"></i></div>
+      <div>
+        <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">รอนิยาม/รอตรวจสอบ</p>
+        <h3 id="metric-pending" class="text-2xl font-bold text-amber-300 mt-0.5">0</h3>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-slate-800 border border-slate-700 rounded-xl p-4 mb-6 flex flex-col sm:flex-row gap-4 items-center justify-between shadow-md">
+    <div class="relative w-100 max-w-full">
+      <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+        <i class="fa-solid fa-magnifying-glass"></i>
+      </span>
+      <input type="text" id="search-input" oninput="filterTableData()" class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition" placeholder="ค้นหาตามชื่อไฟล์ ชื่อฟังก์ชัน หรือคำอธิบาย...">
+    </div>
+    <div class="flex items-center gap-3 text-xs text-slate-400">
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500 block"></span> วิเคราะห์แล้ว</span>
+      <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500 block"></span> รอประมวลผล</span>
+    </div>
+  </div>
+
+  <div class="bg-slate-800 border border-slate-700 rounded-xl shadow-lg overflow-hidden flex-grow flex flex-col">
+    <div class="overflow-x-auto flex-grow max-h-[500px]">
+      <table class="w-full text-left border-collapse">
+        <thead class="bg-slate-900/80 sticky top-0 border-b border-slate-700 z-10 backdrop-blur-sm">
+          <tr>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12 text-center">ลำดับ</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-48">ชื่อไฟล์ของฟังก์ชัน</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-48">ชื่อฟังก์ชัน (คลิกเพื่อจัมป์)</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-56">Dependency Mapping</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-40">ข้อมูลที่ต้องการ</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-28">รูปแบบข้อมูล</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">คำอธิบายฟังก์ชันอัตโนมัติ</th>
+            <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-36 text-center">แก้ไขล่าสุด</th>
+          </tr>
+        </thead>
+        <tbody id="dashboard-table-body" class="divide-y divide-slate-700/50 bg-slate-800/30">
+          <tr>
+            <td colspan="8" class="px-6 py-12 text-center text-slate-400">
+              <div class="flex items-center justify-center gap-3">
+                <i class="fa-solid fa-circle-notch animate-spin text-emerald-400 text-xl"></i>
+                <span>กำลังดึงสถาปัตยกรรมข้อมูลระบบจากแผ่นงานหลัก...</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-slate-900 px-4 py-2 border-t border-slate-700 flex justify-between items-center text-xs text-slate-400">
+      <div id="table-counter">แสดงข้อมูลทั้งหมด 0 รายการ</div>
+      <div class="font-mono text-slate-500">Smart Worksite Engine Connected</div>
+    </div>
+  </div>
+
+  <script>
+    let globalDataset = [];
+
+    document.addEventListener("DOMContentLoaded", function() {
+      loadDashboardData();
+    });
+
+    function loadDashboardData() {
+      const tbody = document.getElementById("dashboard-table-body");
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="px-6 py-12 text-center text-slate-400">
+            <div class="flex items-center justify-center gap-3">
+              <i class="fa-solid fa-circle-notch animate-spin text-emerald-400 text-xl"></i>
+              <span>กำลังดาวน์โหลดโครงสร้างโปรเจกต์...</span>
+            </div>
+          </td>
+        </tr>`;
+
+      google.script.run.withSuccessHandler(function(response) {
+        if (!response.success) {
+          tbody.innerHTML = `<tr><td colspan="8" class="px-6 py-12 text-center text-rose-400 font-medium"><i class="fa-solid fa-triangle-exclamation mr-2"></i> ข้อผิดพลาด: ${response.error}</td></tr>`;
+          return;
+        }
+
+        globalDataset = response.data;
+        
+        // อัปเดตการ์ดสถิติต่างๆ
+        document.getElementById("metric-files").innerText = response.metrics.totalFiles;
+        document.getElementById("metric-funcs").innerText = response.metrics.totalFunctions;
+        document.getElementById("metric-ai").innerText = response.metrics.aiAnalyzed;
+        document.getElementById("metric-pending").innerText = response.metrics.pendingAnalysis;
+
+        renderTable(globalDataset);
+      }).getDashboardData();
+    }
+
+    function renderTable(dataset) {
+      const tbody = document.getElementById("dashboard-table-body");
+      document.getElementById("table-counter").innerText = `แสดงข้อมูลทั้งหมด ${dataset.length} รายการ`;
+
+      if (dataset.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="px-6 py-12 text-center text-slate-500"> ไม่พบชุดข้อมูลสถาปัตยกรรมโค้ดในเงื่อนไขปัจจุบัน</td></tr>`;
+        return;
+      }
+
+      let htmlRows = "";
+      dataset.forEach(row => {
+        const isPending = row.dependency === "รอนิยามความสัมพันธ์ระบบ" || row.dependency === "#ERROR!" || !row.dependency;
+        const statusClass = isPending ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
+        const fileBadgeColor = row.fileName.endsWith('.html') ? 'bg-orange-950/40 text-orange-400 border-orange-800/60' : 'bg-slate-900 text-slate-300 border-slate-700';
+
+        htmlRows += `
+          <tr class="hover:bg-slate-700/30 transition text-sm">
+            <td class="px-4 py-2.5 text-center font-mono text-slate-500 text-xs">${row.index}</td>
+            <td class="px-4 py-2.5 font-medium text-slate-300">
+              <span class="px-2 py-0.5 rounded text-xs border font-mono ${fileBadgeColor}">${row.fileName}</span>
+            </td>
+            <td class="px-4 py-2.5">
+              <button onclick="jumpToCell('${row.gid}', ${row.rowPosition})" class="text-left text-emerald-400 hover:text-emerald-300 hover:underline font-mono font-medium transition cursor-pointer flex items-center gap-1.5">
+                <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> ${row.functionName}
+              </button>
+            </td>
+            <td class="px-4 py-2.5">
+              <div class="px-2.5 py-1 rounded-md border text-xs text-slate-300 ${statusClass}">${row.dependency}</div>
+            </td>
+            <td class="px-4 py-2.5 text-slate-400 text-xs max-w-[160px] truncate" title="${row.requiredData}">${row.requiredData}</td>
+            <td class="px-4 py-2.5 font-mono text-xs text-blue-400">${row.dataType}</td>
+            <td class="px-4 py-2.5 text-slate-300 text-xs max-w-sm truncate" title="${row.description}">${row.description}</td>
+            <td class="px-4 py-2.5 text-center font-mono text-xs text-slate-500">${row.lastModified || '-'}</td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = htmlRows;
+    }
+
+    function filterTableData() {
+      const searchTerm = document.getElementById("search-input").value.toLowerCase().trim();
+      if (!searchTerm) {
+        renderTable(globalDataset);
+        return;
+      }
+
+      const filtered = globalDataset.filter(row => {
+        return row.fileName.toLowerCase().includes(searchTerm) ||
+               row.functionName.toLowerCase().includes(searchTerm) ||
+               row.dependency.toLowerCase().includes(searchTerm) ||
+               row.description.toLowerCase().includes(searchTerm);
+      });
+      renderTable(filtered);
+    }
+
+    function jumpToCell(gid, row) {
+      // สั่งงาน Google Sheets API ปลายทางให้ย้ายโฟกัสและไฮไลท์พิกัดเซลล์ในหน้าย่อยทันทีแบบ Interactive
+      if (!gid) return;
+      google.script.run.withSuccessHandler(function() {
+        // หากต้องการปิดหน้าต่างออโต้เมื่อกดจัมป์ สามารถเปิดฟังก์ชัน google.script.host.close() ได้ที่นี่
+      }).executeCellJump(gid, row);
+    }
+  </script>
+</body>
+</html>

@@ -9,8 +9,7 @@ function reply(tk, m) {
       'Authorization': 'Bearer ' + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN')
     },
     method: 'post',
-    payload: JSON.stringify({ replyToken: tk, messages: [{ type: 'text', text: m }] }),
-    muteHttpExceptions: true
+    payload: JSON.stringify({ replyToken: tk, messages: [{ type: 'text', text: m }] })
   });
 }
 
@@ -59,19 +58,20 @@ function replyWithButtons(tk, t, b) {
 }
 
 function doPost(e) {
+  // 🛡️ เปิดใช้งานระบบ LockService เพื่อป้องกันพนักงานส่งข้อมูลชนกัน (Race Condition)
+  const lock = LockService.getScriptLock();
+  
   try {
+    // รอคิวเข้าถึงทรัพยากรสูงสุด 30 วินาที หากมีการทำงานพร้อมกัน
+    lock.waitLock(30000);
+    
     // 🟢 โค้ดผสานระดับโปร V11: เชื่อม Gateway Orchestrator เข้ากับ Multi-Agent & State Cache Engine
     if (!e || !e.postData || !e.postData.contents) {
       return ContentService.createTextOutput(JSON.stringify({ status: "ERROR", message: "No data received" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    let requestData;
-    try {
-      requestData = JSON.parse(e.postData.contents);
-    } catch (parseErr) {
-      return ContentService.createTextOutput("PARSE_ERROR");
-    }
+    const requestData = JSON.parse(e.postData.contents);
 
     // 🎯 สายท่อที่ 1: สัญญาณมาจาก LINE Webhook (Events Array)
     if (requestData.events && requestData.events.length > 0) {
@@ -97,6 +97,12 @@ function doPost(e) {
     }
     return ContentService.createTextOutput(JSON.stringify({ status: "CRASH", error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    try {
+      if (lock) lock.releaseLock();
+    } catch(releaseErr) {
+      console.error("Lock Release Error: ", releaseErr);
+    }
   }
 }
 
@@ -710,4 +716,3 @@ function handleTestMode(content, replyToken) {
 
 // ⚠️ [CONSOLIDATED] isAdmin() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)
 // ป้องกัน GAS "last wins" override ที่ทำให้ลอจิกตรวจสอบ Admin ทำงานผิดพลาด
-// force push

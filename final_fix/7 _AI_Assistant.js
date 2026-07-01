@@ -373,7 +373,7 @@ function callGemini(prompt, systemInstruction, isJson) {
 // =================================================================
 // 📱 SOURCE HANDLERS (อัปเดตระบบ Hook)
 // =================================================================
-async function handleLineWebhook_AI_DEPRECATED(json) {
+async function handleLineWebhook(json) {
   let globalReplyToken = null;
   try {
     const event = json.events[0];
