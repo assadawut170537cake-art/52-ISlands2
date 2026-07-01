@@ -536,3 +536,96 @@ function createSupportSheets() {
   });
   SpreadsheetApp.getActiveSpreadsheet().toast("สร้างชีตระบบสำเร็จแล้วครับ", "System", 3);
 }
+
+// =================================================================
+// 🔔 4. ระบบแจ้งเตือนและบันทึกประวัติข้อความ (LINE Notify & History)
+// =================================================================
+
+function sendLineNotify(message, imageBlob) {
+  try {
+    const token = getDynamicConfig("LINE_NOTIFY_TOKEN");
+    if (!token) return; // หากยังไม่ได้ใส่ Token ให้ข้ามไป
+    
+    let payload = { message: message };
+    if (imageBlob) {
+      payload.imageFile = imageBlob;
+    }
+
+    const options = {
+      method: 'post',
+      payload: payload,
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    };
+    UrlFetchApp.fetch('https://notify-api.line.me/api/notify', options);
+  } catch (e) {
+    console.error("sendLineNotify error:", e.message);
+  }
+}
+
+function getLineContentAsBlob(messageId) {
+  try {
+    const token = getDynamicConfig("LINE_CHANNEL_ACCESS_TOKEN");
+    if (!token) return null;
+    var url = "https://api-data.line.me/v2/bot/message/" + messageId + "/content";
+    var options = {
+      method: "get",
+      headers: { Authorization: "Bearer " + token },
+      muteHttpExceptions: true
+    };
+    var response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() === 200) {
+      return response.getBlob();
+    }
+  } catch (e) {
+    console.error("getLineContentAsBlob error:", e.message);
+  }
+  return null;
+}
+
+function getUserProfile(userId) {
+  if (!userId) return "Unknown";
+  try {
+    const token = getDynamicConfig("LINE_CHANNEL_ACCESS_TOKEN");
+    if (!token) return userId;
+    
+    const response = UrlFetchApp.fetch('https://api.line.me/v2/bot/profile/' + userId, {
+      headers: { Authorization: "Bearer " + token },
+      muteHttpExceptions: true
+    });
+    
+    if (response.getResponseCode() === 200) {
+      const data = JSON.parse(response.getContentText());
+      return data.displayName || userId;
+    }
+  } catch (e) {
+    console.error("getUserProfile error:", e.message);
+  }
+  return userId;
+}
+
+function logMessageHistory(userId, displayName, message) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
+    const sheetName = getDynamicConfig("HISTORY_SHEET_NAME") || "Chat_History";
+    if (!dbId) return;
+
+    const ss = SpreadsheetApp.openById(dbId);
+    let sheet = ss.getSheetByName(sheetName);
+    
+    // ถ้ายังไม่มีหน้าต่างให้สร้างใหม่
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(["Timestamp", "User ID", "Display Name", "Message"]);
+      sheet.getRange("A1:D1").setFontWeight("bold").setBackground("#d9ead3");
+    }
+
+    sheet.appendRow([new Date(), userId, displayName, message]);
+  } catch (e) {
+    console.error("logMessageHistory error:", e.message);
+  } finally {
+    lock.releaseLock();
+  }
+}

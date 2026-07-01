@@ -19,9 +19,11 @@ Smart Worksite System เป็นระบบจัดการฐานข้�
 - **`Config.js`** / **`Script properties.js`**: จัดการการตั้งค่า PropertiesService, ตัวแปรระบบ, และ API Key ต่างๆ
 
 ### ระบบเชื่อมต่อผู้ใช้ (User Interfaces & Webhooks)
-- **`1_bot line.js`**: จัดการ Webhook ของ LINE Bot, รับข้อความ/รูปภาพ, และตอบกลับผู้ใช้
+- **`1_bot line.js`**: จัดการ Webhook ของ LINE Bot, รับข้อความ/รูปภาพ, และตอบกลับผู้ใช้ (รวมถึงการจัดการ State ของ Quick Reply)
 - **`2_WebApp.js`**: ตัวจัดการฝั่ง Web Application รับ HTTP Request (doGet/doPost) สำหรับ Dashboard
 - **`9_System_Chat.js`**: ฟังก์ชันสนทนาและการตอบสนองของระบบแชท
+- **`changelog_quickreply_fix.md`**: ไฟล์สรุปการแก้บั๊กปุ่ม Quick Reply และกระบวนการ CI/CD (วันที่ 1 ก.ค. 2026)
+
 
 ### สมองกลผู้ช่วย (AI Assistant)
 - **`7 _AI_Assistant.js`**: ประมวลผลคำสั่งผ่านการแชท (AI Logic), ตรวจสอบสิทธิ์ (Admin), อัปเดตกฎแบบแปรผัน (Dynamic Rules), และประมวลผลข้อความที่ไม่ตรงแพทเทิร์นตายตัว

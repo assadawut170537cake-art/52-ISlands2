@@ -161,6 +161,8 @@ function handleLineWebhook(requestData, e) {
 
       let msg = "";
       let isTextMsg = false;
+      let messageId = event.message ? event.message.id : null;
+      let imageBlob = null;
       
       if (event.type === "postback") {
          msg = event.postback.data.trim();
@@ -168,7 +170,33 @@ function handleLineWebhook(requestData, e) {
       } else if (event.message && event.message.type === "text") {
          msg = event.message.text.trim();
          isTextMsg = true;
+      } else if (event.message && event.message.type === "image") {
+         msg = "[ส่งรูปภาพ]";
+         if (typeof getLineContentAsBlob === "function") {
+           imageBlob = getLineContentAsBlob(messageId);
+         }
+      } else if (event.message && event.message.type === "sticker") {
+         msg = "[ส่งสติกเกอร์]";
+      } else if (event.message && event.message.type === "video") {
+         msg = "[ส่งวิดีโอ]";
+      } else if (event.message && event.message.type === "audio") {
+         msg = "[ส่งข้อความเสียง]";
+      } else if (event.message && event.message.type === "location") {
+         msg = "[ส่งพิกัดตำแหน่ง: " + (event.message.address || "") + "]";
+      } else if (event.message) {
+         msg = "[ส่งข้อมูลประเภท: " + event.message.type + "]";
       }
+
+      // --- ส่วนเสริม: แจ้งเตือนและเก็บบันทึกข้อความแชท (ทุกประเภท) ---
+      if (msg !== "") {
+        if (typeof getUserProfile === "function" && typeof sendLineNotify === "function" && typeof logMessageHistory === "function") {
+          const displayName = getUserProfile(userId);
+          const notifyMsg = "\nมีข้อความใหม่จาก: " + displayName + "\nข้อความ: " + msg;
+          sendLineNotify(notifyMsg, imageBlob);
+          logMessageHistory(userId, displayName, msg);
+        }
+      }
+      // ---------------------------------------------
 
       if (isTextMsg) {
         
@@ -227,7 +255,7 @@ function handleLineWebhook(requestData, e) {
           return ContentService.createTextOutput("OK");
         }
 
-        if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
+        if (!isPostback && msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
           try {
             props.deleteProperty(`PENDING_CLOCKIN_${userId}`);
             props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`);
@@ -241,7 +269,7 @@ function handleLineWebhook(requestData, e) {
 
         // 1. จัดการ State: ลงรายละเอียดไซต์งานโอที
         if (pendingOTDetails) {
-          if (msg === "ยกเลิกลงเวลา") {
+          if (cmdTrimmed === "ยกเลิกลงเวลา") {
             try { props.deleteProperty(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
@@ -256,13 +284,13 @@ function handleLineWebhook(requestData, e) {
         // 2. จัดการ State: ยืนยันทำโอที
         if (pendingOTConfirm) {
           let dataToProcess = JSON.parse(pendingOTConfirm);
-          if (msg === "ทำที่เดิม/งานเดิม") {
+          if (cmdTrimmed === "ทำที่เดิม/งานเดิม") {
             try { props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
             if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, null);
             return ContentService.createTextOutput("OK");
           }
-          else if (msg === "เปลี่ยนไซต์/เปลี่ยนงาน") {
+          else if (cmdTrimmed === "เปลี่ยนไซต์/เปลี่ยนงาน") {
             try { 
               props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`);
               props.setProperty(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess));
@@ -271,7 +299,7 @@ function handleLineWebhook(requestData, e) {
             if (typeof reply === "function") reply(globalReplyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
             return ContentService.createTextOutput("OK");
           }
-          else if (msg === "ยกเลิกลงเวลา") {
+          else if (cmdTrimmed === "ยกเลิกลงเวลา") {
             try { props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
@@ -281,12 +309,12 @@ function handleLineWebhook(requestData, e) {
 
         // 3. จัดการ State: ลงเวลาช่วงบ่าย (12.00/13.00)
         if (pendingClockIn12) {
-          if (msg === "ยืนยันตามเวลาที่แจ้ง" || msg === "ลงเวลา 13.00 น.") {
+          if (cmdTrimmed === "ยืนยันตามเวลาที่แจ้ง" || cmdTrimmed === "ลงเวลา 13.00 น.") {
             if (typeof processPendingClockIn === "function") processPendingClockIn(msg, pendingClockIn12, userId, globalReplyToken);
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "CONFIRM_12", "ยืนยันเวลาทำงานช่วงบ่าย");
             return ContentService.createTextOutput("OK");
           }
-          else if (msg === "ยกเลิกลงเวลา") {
+          else if (cmdTrimmed === "ยกเลิกลงเวลา") {
             try { props.deleteProperty(`PENDING_CLOCKIN_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "REJECT_12", "ยกเลิกการยืนยันเวลาช่วงบ่าย");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");

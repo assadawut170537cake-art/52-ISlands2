@@ -16,6 +16,8 @@ var GLOBAL_CONFIG = {
   "BACKDATE_LIMIT": 2,
   "FUZZY_THRESHOLD": 0.90,
   "EXTERNAL_DATABASE_ID": "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk",
+  "LINE_NOTIFY_TOKEN": "", // ใส่ Token สำหรับ LINE Notify ตรงนี้
+  "HISTORY_SHEET_NAME": "Chat_History",
   "DRIVE_FOLDER_ID": "1PTdHuQErX_ZxJPypS-xb4Gw3vcmuOvtJ",
   "DATABASE_SHEET_NAME": "รายชื่อพนักงาน",
   "LEAVE_SHEET_NAME": "ข้อมูลการลา",
