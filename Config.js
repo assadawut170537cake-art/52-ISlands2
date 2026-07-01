@@ -6,9 +6,9 @@
  * ⚠️ แก้ไขจาก const เป็น var เพื่อให้ไฟล์อื่นในโปรเจกต์สามารถเรียกใช้งานได้ (Global Scope)
  */
 var GLOBAL_CONFIG = {
-  "LINE_CHANNEL_ACCESS_TOKEN": "",
-  "GEMINI_API_KEY_LINE": "",
-  "GEMINI_API_KEY_WEB": "",
+  "LINE_CHANNEL_ACCESS_TOKEN": "8QlMn9NgQseieDAdRDx87rdG8Re1fsSpXmGgvyHSNAELDhHAp4YDCbKqD8QlGRJUyUKRWwCoyi33wchRxo6rgdFdyy/wGTwrMotzLoOYQDXqDSz1Rv8VQ/zURTKXNrZM1CbyzCpS6EDOm1oIgQe2mQdB04t89/1O/w1cDnyilFU=",
+  "GEMINI_API_KEY_LINE": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
+  "GEMINI_API_KEY_WEB": "AIzaSyBGisNqxlxD1OXSHloGUmYRMG7cCihwZn8",
   "MODEL_NAME": "gemini-2.5-flash",
   "ADMIN_LINE_IDS": "U19fc3f88a0ae90bfb047e362b60e2493,Uc0c4b4e9e5159a37b38fa5ac9c619c1e",
   "SYSTEM_STATUS": "ON",

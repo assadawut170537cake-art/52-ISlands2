@@ -203,18 +203,19 @@ function handleLineWebhook(requestData, e) {
           return ContentService.createTextOutput("OK");
         }
 
-        // ⚡ เช็ค State คงค้างด้วย CacheService
+        // ⚡ เช็ค State คงค้างด้วย PropertiesService
         const cache = CacheService.getScriptCache();
+        const props = PropertiesService.getScriptProperties();
         let pendingClockIn12 = null;
         let pendingOTConfirm = null;
         let pendingOTDetails = null;
         
         try {
-          pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
-          pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
-          pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
+          pendingClockIn12 = props.getProperty(`PENDING_CLOCKIN_${userId}`);
+          pendingOTConfirm = props.getProperty(`PENDING_OT_CONFIRM_${userId}`);
+          pendingOTDetails = props.getProperty(`PENDING_OT_DETAILS_${userId}`);
         } catch(cacheReadErr) {
-          console.error("Cache Read Error:", cacheReadErr);
+          console.error("Properties Read Error:", cacheReadErr);
         }
 
         // 🛡️ Strict Text Filtering (Silent Ignore)
@@ -222,40 +223,31 @@ function handleLineWebhook(requestData, e) {
         const hasHash = msg.startsWith("#");
         const hasPendingState = !!(pendingClockIn12 || pendingOTConfirm || pendingOTDetails);
         
-        // เช็คคร่าวๆ ว่าผู้ใช้ส่งข้อความลงเวลาใหม่เข้ามาหรือไม่ (มีคำว่า เข้า และมีตัวเลขลำดับคน)
-        let isTimesheet = false;
-        if (!hasHash && !isPostback) {
-            if (/(.+?)\s+เข้า\s+(.+?)/.test(msg) && /\d+\./.test(msg)) {
-                isTimesheet = true;
-            }
-        }
-        
-        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin && !isTimesheet) {
+        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin) {
           return ContentService.createTextOutput("OK");
         }
 
-        // หากเป็นการส่งข้อมูลลงเวลาใหม่ หรือพิมพ์ # เพื่อเคลียร์คำสั่ง ให้ยกเลิก State เดิมที่ค้างอยู่
-        if ((hasHash || isTimesheet) && hasPendingState) {
+        if (msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
           try {
-            cache.remove(`PENDING_CLOCKIN_${userId}`);
-            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
-            cache.remove(`PENDING_OT_DETAILS_${userId}`);
+            props.deleteProperty(`PENDING_CLOCKIN_${userId}`);
+            props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`);
+            props.deleteProperty(`PENDING_OT_DETAILS_${userId}`);
           } catch(cacheRemErr) {
-            console.error("Cache Remove Error:", cacheRemErr);
+            console.error("Properties Remove Error:", cacheRemErr);
           }
-          if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยการส่งรายการใหม่หรือเครื่องหมาย #");
+          if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
           pendingClockIn12 = null; pendingOTConfirm = null; pendingOTDetails = null;
         }
 
         // 1. จัดการ State: ลงรายละเอียดไซต์งานโอที
         if (pendingOTDetails) {
           if (msg === "ยกเลิกลงเวลา") {
-            try { cache.remove(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
+            try { props.deleteProperty(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
           }
           let dataToProcess = JSON.parse(pendingOTDetails);
-          try { cache.remove(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
+          try { props.deleteProperty(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
           if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_DETAILS", msg, JSON.stringify(dataToProcess), 1.0, "ACCEPT_DETAILS", "ประมวลผลรายละเอียดไซต์งานโอที");
           if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, msg);
           return ContentService.createTextOutput("OK");
@@ -264,31 +256,25 @@ function handleLineWebhook(requestData, e) {
         // 2. จัดการ State: ยืนยันทำโอที
         if (pendingOTConfirm) {
           let dataToProcess = JSON.parse(pendingOTConfirm);
-          let ans = msg.trim().toLowerCase();
-          
-          if (ans === "ทำที่เดิม/งานเดิม" || ans === "ทำที่เดิม" || ans === "ใช่" || ans === "ใช่ครับ" || ans === "yes") {
-            try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
+          if (msg === "ทำที่เดิม/งานเดิม") {
+            try { props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
             if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, null);
             return ContentService.createTextOutput("OK");
           }
-          else if (ans === "เปลี่ยนไซต์/เปลี่ยนงาน" || ans === "เปลี่ยนไซต์" || ans === "ไม่ใช่" || ans === "เปลี่ยน" || ans === "no") {
+          else if (msg === "เปลี่ยนไซต์/เปลี่ยนงาน") {
             try { 
-              cache.remove(`PENDING_OT_CONFIRM_${userId}`);
-              cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 300);
+              props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`);
+              props.setProperty(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess));
             } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "CHANGE_SITE", "ร้องขอเปลี่ยนไซต์ทำโอที");
             if (typeof reply === "function") reply(globalReplyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
             return ContentService.createTextOutput("OK");
           }
-          else if (ans === "ยกเลิกลงเวลา" || ans === "ยกเลิก" || ans === "cancel") {
-            try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
+          else if (msg === "ยกเลิกลงเวลา") {
+            try { props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
-            return ContentService.createTextOutput("OK");
-          } else {
-            // หากพิมพ์ข้อความอื่นที่ไม่ตรงกับตัวเลือก และไม่ใช่การส่งเวลาใหม่
-            if (typeof reply === "function") reply(globalReplyToken, "⚠️ กรุณากดปุ่มเพื่อยืนยัน หรือพิมพ์คำตอบให้ตรงกับปุ่ม (ทำที่เดิม/งานเดิม, เปลี่ยนไซต์/เปลี่ยนงาน, ยกเลิกลงเวลา)");
             return ContentService.createTextOutput("OK");
           }
         }
@@ -301,7 +287,7 @@ function handleLineWebhook(requestData, e) {
             return ContentService.createTextOutput("OK");
           }
           else if (msg === "ยกเลิกลงเวลา") {
-            try { cache.remove(`PENDING_CLOCKIN_${userId}`); } catch(e){}
+            try { props.deleteProperty(`PENDING_CLOCKIN_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "REJECT_12", "ยกเลิกการยืนยันเวลาช่วงบ่าย");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
@@ -591,7 +577,7 @@ async function checkOTAndProceed(dataToProcess, userId, token, check, targetFile
 
   if (hasOT) {
     dataToProcess.checkStatus = check;
-    CacheService.getScriptCache().put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 300);
+    PropertiesService.getScriptProperties().setProperty(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess));
     replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
   } else {
     await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);

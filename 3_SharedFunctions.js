@@ -61,41 +61,25 @@ function getStringSimilarity(str1, str2) {
 // 📝 ระบบช่วยแปลงวันที่อัจฉริยะ (ยึดปัจจุบันเป็นหลัก)
 // =================================================================
 function smartParseDate(text) {
-  try {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
 
-    // ลบแท็กพิเศษด้านหน้าออก เพื่อให้อ่านบรรทัดแรกได้แม่นยำขึ้น
-    const cleanText = text.replace(/^#/, "").trim();
-    const firstLine = cleanText.split('\n')[0];
-    
-    // แบบที่ 1: ตรวจสอบวันที่ที่มีเครื่องหมายคั่น (เช่น 30/07/69, 30.07, 30-07-2026) โดยต้องมีตัวคั่นชัดเจน
-    let match = firstLine.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/);
-    
-    // แบบที่ 2: ถ้าไม่มีเครื่องหมายคั่น ให้ตรวจสอบว่าตัวเลข 1-2 หลักอยู่ต้นประโยคจริงๆ เท่านั้น (เช่น "30 สำโรง")
-    if (!match) {
-      match = firstLine.match(/^(\d{1,2})\b/);
-    }
-    
-    if (!match) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
+  // ค้นหารูปแบบวันที่: รองรับ 1/5/69, 1.5.69, 1-5-2026 หรือแค่ 1, 1/5
+  const match = text.match(/(\d{1,2})[\/.-]?(\d{1,2})?[\/.-]?(\d{2,4})?/);
+  
+  if (!match) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
 
-    let day = parseInt(match[1], 10);
-    let month = match[2] ? parseInt(match[2], 10) : currentMonth;
-    let year = match[3] ? parseInt(match[3], 10) : currentYear;
+  let day = parseInt(match[1], 10);
+  let month = match[2] ? parseInt(match[2], 10) : currentMonth;
+  // บังคับปีปัจจุบันเสมอ (ตามที่ผู้ใช้ร้องขอ ห้ามลงบันทึกข้ามปี)
+  let year = currentYear;
 
-    // แปลงปี พ.ศ. เป็น ค.ศ. (รองรับเลข 2 หลัก เช่น 69 -> 2026)
-    if (year < 100) year += 2000;
-    if (year > 2500) year -= 543;
+  // สร้าง Date Object และตรวจสอบความถูกต้อง
+  const dateObj = new Date(year, month - 1, day);
+  if (isNaN(dateObj.getTime())) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
 
-    // สร้าง Date Object และตรวจสอบความถูกต้อง
-    const dateObj = new Date(year, month - 1, day);
-    if (isNaN(dateObj.getTime())) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
-
-    return Utilities.formatDate(dateObj, "GMT+7", "dd/MM/yyyy");
-  } catch (e) {
-    return Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy");
-  }
+  return Utilities.formatDate(dateObj, "GMT+7", "dd/MM/yyyy");
 }
 
 // =================================================================
@@ -128,10 +112,8 @@ function parseComplexMessage(text) {
 
     const siteMatch = text.match(/(.+?)\s+เข้า\s+(.+?)(?=\n|$)/);
     if (siteMatch) { 
-      // ลบวันที่ออกจาก accom ให้เหลือแค่ชื่อแคมป์/ที่พัก
-      currentAccom = siteMatch[1].replace(/^[\s#]*\d{1,2}(?:[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)?\s*/, "").trim(); 
-      // ลบเวลาออกจากไซต์งาน (เพื่อไม่ให้มีเวลาเช่น 08.00-22.00 ติดไปกับชื่อไซต์)
-      defaultSite = siteMatch[2].replace(/\s*\d{1,2}[.:]\d{2}\s*[-ถึง]\s*\d{1,2}[.:]\d{2}/, "").trim(); 
+      currentAccom = siteMatch[1].replace(/^[\s#]*\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*/, "").trim(); 
+      defaultSite = siteMatch[2].trim(); 
     }
     if (!defaultSite) return null;
 
@@ -315,17 +297,8 @@ function parseThaiDate(s) {
   
   // 🧠 ระบบ Smart Year: ไม่สนใจปีที่ผู้ใช้พิมพ์มา ยึดปี พ.ศ. ปัจจุบันของระบบเสมอ
   const now = new Date();
-  const currentMonthIdx = now.getMonth(); // 0-11 (0 = มกราคม)
   let y = now.getFullYear() + 543; // ดึงปีปัจจุบัน (เช่น 2026 -> 2569)
-  
-  // 🔄 ลอจิกข้ามปี: เช็คกรณีลงเวลาคาบเกี่ยวช่วงปีใหม่
-  if (currentMonthIdx === 0 && monthIdx === 11) {
-    // ปัจจุบันมกราคม แต่ลงเวลาของธันวาคม (ลงย้อนหลังปีที่แล้ว)
-    y -= 1; 
-  } else if (currentMonthIdx === 11 && monthIdx === 0) {
-    // ปัจจุบันธันวาคม แต่ลงเวลาของมกราคม (ลงล่วงหน้าปีหน้า)
-    y += 1; 
-  }
+  // ห้ามมีลอจิกข้ามปีเด็ดขาด ให้ใช้ปีปัจจุบัน (y) เสมอ
   
   return `${day} ${m} ${y}`;
 }
