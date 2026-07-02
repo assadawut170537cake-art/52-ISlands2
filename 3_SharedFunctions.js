@@ -60,26 +60,35 @@ function getStringSimilarity(str1, str2) {
 // =================================================================
 // 📝 ระบบช่วยแปลงวันที่อัจฉริยะ (ยึดปัจจุบันเป็นหลัก)
 // =================================================================
+/**
+ * @description ฟังก์ชันแปลงและจัดการวันที่อัจฉริยะ (บังคับปีปัจจุบันเสมอ)
+ * @param {string} text - ข้อความต้นฉบับที่มีวันที่รวมอยู่
+ * @returns {string} - วันที่ในรูปแบบ dd/MM/yyyy (ปี ค.ศ.)
+ */
 function smartParseDate(text) {
   const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
+  try {
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
 
-  // ค้นหารูปแบบวันที่: รองรับ 1/5/69, 1.5.69, 1-5-2026 หรือแค่ 1, 1/5
-  const match = text.match(/(\d{1,2})[\/.-]?(\d{1,2})?[\/.-]?(\d{2,4})?/);
-  
-  if (!match) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
+    // ค้นหารูปแบบวันที่: รองรับ 1/5/69, 1.5.69, 1-5-2026 หรือแค่ 1, 1/5
+    const match = text.match(/(\d{1,2})[\/.-]?(\d{1,2})?[\/.-]?(\d{2,4})?/);
+    
+    if (!match) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
 
-  let day = parseInt(match[1], 10);
-  let month = match[2] ? parseInt(match[2], 10) : currentMonth;
-  // บังคับปีปัจจุบันเสมอ (ตามที่ผู้ใช้ร้องขอ ห้ามลงบันทึกข้ามปี)
-  let year = currentYear;
+    let day = parseInt(match[1], 10);
+    let month = match[2] ? parseInt(match[2], 10) : currentMonth;
+    // บังคับปีปัจจุบันเสมอ (ตามที่ผู้ใช้ร้องขอ ห้ามลงบันทึกข้ามปี)
+    let year = currentYear;
 
-  // สร้าง Date Object และตรวจสอบความถูกต้อง
-  const dateObj = new Date(year, month - 1, day);
-  if (isNaN(dateObj.getTime())) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
+    // สร้าง Date Object และตรวจสอบความถูกต้อง
+    const dateObj = new Date(year, month - 1, day);
+    if (isNaN(dateObj.getTime())) return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
 
-  return Utilities.formatDate(dateObj, "GMT+7", "dd/MM/yyyy");
+    return Utilities.formatDate(dateObj, "GMT+7", "dd/MM/yyyy");
+  } catch (e) {
+    return Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
+  }
 }
 
 // =================================================================
@@ -180,13 +189,30 @@ function formatDateToShort(dateObj) {
   if (!(dateObj instanceof Date)) return dateObj;
   return `${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear().toString().slice(-2)}`;
 }
+/**
+ * @description ตรวจสอบความถูกต้องของวันที่ว่าส่งย้อนหลังเกินกำหนดหรือไม่ (บังคับปีปัจจุบัน)
+ * @param {string} s - วันที่ในรูปแบบ dd/MM/yyyy
+ * @returns {Object} - สถานะการตรวจสอบ {status: "OK"|"WARNING"|"BLOCK", msg: string}
+ */
 function checkDate(s) {
-  const p = String(s).split(/[\/\-]/); let y = parseInt(p[2]); y = (y<100?2000+y:y)>2300?y-543:y;
-  const d = new Date(y, p[1]-1, p[0]); d.setHours(0,0,0,0);
-  const now = new Date(); now.setHours(0,0,0,0);
-  const diff = (now-d)/86400000;
-  const limit = parseInt(getDynamicConfig("BACKDATE_LIMIT")); // 🔮 อิงตั้งค่า ChatOps
-  return diff<=0 ? {status:"OK"} : (diff<=limit ? {status:"WARNING", msg:`ส่งย้อนหลัง ${diff} วัน`} : {status:"BLOCK", msg:`ห้ามส่งย้อนหลังเกิน ${limit} วัน`});
+  try {
+    const p = String(s).split(/[\/\-]/);
+    const now = new Date(); 
+    now.setHours(0,0,0,0);
+    const currentYear = now.getFullYear();
+    
+    // บังคับปีปัจจุบันเสมอ ป้องกันเคสปีผิดหรือข้ามปี
+    let y = currentYear; 
+
+    const d = new Date(y, parseInt(p[1]) - 1, parseInt(p[0])); 
+    d.setHours(0,0,0,0);
+    
+    const diff = (now - d) / 86400000;
+    const limit = parseInt(getDynamicConfig("BACKDATE_LIMIT")); // 🔮 อิงตั้งค่า ChatOps
+    return diff <= 0 ? {status: "OK"} : (diff <= limit ? {status: "WARNING", msg: `ส่งย้อนหลัง ${diff} วัน`} : {status: "BLOCK", msg: `ห้ามส่งย้อนหลังเกิน ${limit} วัน`});
+  } catch (e) {
+    return {status: "BLOCK", msg: "รูปแบบวันที่ไม่ถูกต้อง"};
+  }
 }
 
 function logErrorToSheet(fileId, originalMsg, errorMsg) {
@@ -276,31 +302,40 @@ function fixAllOTInSheet() {
 // ⚠️ [CONSOLIDATED] checkIsAdmin() + executeAdminCommand() ถูกลบออก
 // ใช้ isAdmin(userId) จาก Config.gs เป็นแหล่งเดียวแทน (Single Source of Truth)
 
+/**
+ * @description แปลงวันที่แบบตัวเลขเป็นภาษาไทย (บังคับปีปัจจุบันเสมอ)
+ * @param {string} s - วันที่ในรูปแบบ dd/MM/yyyy
+ * @returns {string} - วันที่ในรูปแบบ "dd เดือน yyyy" (ปี พ.ศ.)
+ */
 function parseThaiDate(s) {
-  if (!s) return "";
-  
-  // รองรับการแยกวันที่ด้วย /, -, หรือ .
-  const p = String(s).split(/[\/\-.]/); 
-  if (p.length < 3) return s;
-  
-  // 💾 ฝังรายชื่อเดือนไว้ในฟังก์ชันโดยตรง ปลอดภัยที่สุด
-  const thaiMonths = [
-    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
-  ];
-  
-  let day = parseInt(p[0], 10);
-  let monthIdx = parseInt(p[1], 10) - 1;
-  
-  if (monthIdx < 0 || monthIdx > 11) return s;
-  const m = thaiMonths[monthIdx];
-  
-  // 🧠 ระบบ Smart Year: ไม่สนใจปีที่ผู้ใช้พิมพ์มา ยึดปี พ.ศ. ปัจจุบันของระบบเสมอ
-  const now = new Date();
-  let y = now.getFullYear() + 543; // ดึงปีปัจจุบัน (เช่น 2026 -> 2569)
-  // ห้ามมีลอจิกข้ามปีเด็ดขาด ให้ใช้ปีปัจจุบัน (y) เสมอ
-  
-  return `${day} ${m} ${y}`;
+  try {
+    if (!s) return "";
+    
+    // รองรับการแยกวันที่ด้วย /, -, หรือ .
+    const p = String(s).split(/[\/\-.]/); 
+    if (p.length < 2) return s;
+    
+    // 💾 ฝังรายชื่อเดือนไว้ในฟังก์ชันโดยตรง ปลอดภัยที่สุด
+    const thaiMonths = [
+      "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+      "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ];
+    
+    let day = parseInt(p[0], 10);
+    let monthIdx = parseInt(p[1], 10) - 1;
+    
+    if (monthIdx < 0 || monthIdx > 11) return s;
+    const m = thaiMonths[monthIdx];
+    
+    // 🧠 ระบบ Smart Year: ไม่สนใจปีที่ผู้ใช้พิมพ์มา ยึดปี พ.ศ. ปัจจุบันของระบบเสมอ
+    const now = new Date();
+    let y = now.getFullYear() + 543; // ดึงปีปัจจุบัน (เช่น 2026 -> 2569)
+    // ห้ามมีลอจิกข้ามปีเด็ดขาด ให้ใช้ปีปัจจุบัน (y) เสมอ
+    
+    return `${day} ${m} ${y}`;
+  } catch (e) {
+    return s;
+  }
 }
 
 // ⚠️ [CONSOLIDATED] getDynamicConfig() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)

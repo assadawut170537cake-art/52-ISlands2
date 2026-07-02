@@ -57,20 +57,24 @@ function pushMessage(userId, msg) {
 }
 
 /**
- * ส่งข้อความพร้อมปุ่มเลือก (Quick Reply) ไปยัง LINE
+ * @description สร้าง Quick Reply Buttons พร้อมรองรับ Payload เพิ่มเติม (เช่น บริบทวันที่)
  * @param {string} tk - Reply Token
  * @param {string} t - ข้อความที่จะส่ง
- * @param {Array<string>} b - อาร์เรย์ของปุ่ม (Label/Text)
+ * @param {Array<Object|string>} b - อาร์เรย์ของปุ่ม (Label/Text) หรืออ็อบเจกต์ที่มี label และ data
  */
 function replyWithButtons(tk, t, b) {
   try {
     const LINE_TOKEN = getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN');
     if (!LINE_TOKEN) throw new Error("Missing LINE_CHANNEL_ACCESS_TOKEN");
 
-    const items = b.map(l => ({ 
-      "type": "action", 
-      "action": { "type": "postback", "label": l, "data": "#" + l } 
-    }));
+    const items = b.map(item => {
+      let label = typeof item === 'string' ? item : item.label;
+      let data = typeof item === 'string' ? "#" + item : item.data;
+      return { 
+        "type": "action", 
+        "action": { "type": "postback", "label": label, "data": data } 
+      };
+    });
 
     const payload = { 
       replyToken: tk, 
@@ -201,7 +205,15 @@ function handleLineWebhook(requestData, e) {
       if (isTextMsg) {
         
         // [PRE-GUARD]: อนุญาตให้คำสั่งขอ ID พื้นฐานทำงานได้แม้กลุ่มยังไม่ได้อยู่ใน Whitelist
-        const cmdTrimmed = msg.startsWith("#") ? msg.substring(1).trim() : msg;
+        let cmdTrimmed = msg.startsWith("#") ? msg.substring(1).trim() : msg;
+        let payloadDate = null;
+        
+        // กรองเอาเฉพาะคำสั่งหลัก ไม่เอา payload ที่แนบมา (ป้องกัน error cmdTrimmed ไม่ตรงกับเงื่อนไข)
+        if (cmdTrimmed.includes("|")) {
+          const parts = cmdTrimmed.split("|");
+          cmdTrimmed = parts[0].trim();
+          payloadDate = parts.length > 1 ? parts[1].trim() : null;
+        }
         
         if (cmdTrimmed === "ขอไอดีแอดมิน") {
           if (typeof reply === "function") reply(globalReplyToken, "🔑 LINE User ID ของคุณคือ:\n" + userId);
@@ -304,6 +316,13 @@ function handleLineWebhook(requestData, e) {
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
           }
+        } else if (["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"].includes(cmdTrimmed) && isPostback) {
+          // กรณี Cache หมดอายุ แต่ผู้ใช้เพิ่งมากดปุ่ม
+          const expireMsg = payloadDate 
+            ? `⚠️ การยืนยันของวันที่ ${payloadDate} หมดเวลาแล้วครับ\nกรุณาพิมพ์ลงเวลาใหม่อีกครั้งครับ`
+            : `⚠️ เซสชันการยืนยันหมดเวลาแล้ว\nกรุณาพิมพ์ลงเวลาใหม่อีกครั้งครับ`;
+          if (typeof reply === "function") reply(globalReplyToken, expireMsg);
+          return ContentService.createTextOutput("OK");
         }
 
         // 3. จัดการ State: ลงเวลาช่วงบ่าย (12.00/13.00)
@@ -605,7 +624,11 @@ async function checkOTAndProceed(dataToProcess, userId, token, check, targetFile
   if (hasOT) {
     dataToProcess.checkStatus = check;
     CacheService.getScriptCache().put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 1800);
-    replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
+    replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, [
+      {label: "ทำที่เดิม/งานเดิม", data: `#ทำที่เดิม/งานเดิม|${dataToProcess.date}`},
+      {label: "เปลี่ยนไซต์/เปลี่ยนงาน", data: `#เปลี่ยนไซต์/เปลี่ยนงาน|${dataToProcess.date}`},
+      {label: "ยกเลิกลงเวลา", data: `#ยกเลิกลงเวลา|${dataToProcess.date}`}
+    ]);
   } else {
     await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
   }
