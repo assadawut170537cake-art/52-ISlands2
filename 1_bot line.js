@@ -231,19 +231,18 @@ function handleLineWebhook(requestData, e) {
           return ContentService.createTextOutput("OK");
         }
 
-        // ⚡ เช็ค State คงค้างด้วย PropertiesService
+        // ⚡ เช็ค State คงค้างด้วย CacheService
         const cache = CacheService.getScriptCache();
-        const props = PropertiesService.getScriptProperties();
         let pendingClockIn12 = null;
         let pendingOTConfirm = null;
         let pendingOTDetails = null;
         
         try {
-          pendingClockIn12 = props.getProperty(`PENDING_CLOCKIN_${userId}`);
-          pendingOTConfirm = props.getProperty(`PENDING_OT_CONFIRM_${userId}`);
-          pendingOTDetails = props.getProperty(`PENDING_OT_DETAILS_${userId}`);
+          pendingClockIn12 = cache.get(`PENDING_CLOCKIN_${userId}`);
+          pendingOTConfirm = cache.get(`PENDING_OT_CONFIRM_${userId}`);
+          pendingOTDetails = cache.get(`PENDING_OT_DETAILS_${userId}`);
         } catch(cacheReadErr) {
-          console.error("Properties Read Error:", cacheReadErr);
+          console.error("Cache Read Error:", cacheReadErr);
         }
 
         // 🛡️ Strict Text Filtering (Silent Ignore)
@@ -257,11 +256,11 @@ function handleLineWebhook(requestData, e) {
 
         if (!isPostback && msg.startsWith("#") && (pendingClockIn12 || pendingOTConfirm || pendingOTDetails)) {
           try {
-            props.deleteProperty(`PENDING_CLOCKIN_${userId}`);
-            props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`);
-            props.deleteProperty(`PENDING_OT_DETAILS_${userId}`);
+            cache.remove(`PENDING_CLOCKIN_${userId}`);
+            cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+            cache.remove(`PENDING_OT_DETAILS_${userId}`);
           } catch(cacheRemErr) {
-            console.error("Properties Remove Error:", cacheRemErr);
+            console.error("Cache Remove Error:", cacheRemErr);
           }
           if (typeof logAuditTrail === "function") logAuditTrail(userId, "STATE_CLEAR", msg, "CLEARED", 1.0, "CLEAR", "ผู้ใช้เคลียร์สถานะเก่าด้วยเครื่องหมาย #");
           pendingClockIn12 = null; pendingOTConfirm = null; pendingOTDetails = null;
@@ -270,12 +269,12 @@ function handleLineWebhook(requestData, e) {
         // 1. จัดการ State: ลงรายละเอียดไซต์งานโอที
         if (pendingOTDetails) {
           if (cmdTrimmed === "ยกเลิกลงเวลา") {
-            try { props.deleteProperty(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
+            try { cache.remove(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
           }
           let dataToProcess = JSON.parse(pendingOTDetails);
-          try { props.deleteProperty(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
+          try { cache.remove(`PENDING_OT_DETAILS_${userId}`); } catch(e){}
           if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_DETAILS", msg, JSON.stringify(dataToProcess), 1.0, "ACCEPT_DETAILS", "ประมวลผลรายละเอียดไซต์งานโอที");
           if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, msg);
           return ContentService.createTextOutput("OK");
@@ -285,22 +284,22 @@ function handleLineWebhook(requestData, e) {
         if (pendingOTConfirm) {
           let dataToProcess = JSON.parse(pendingOTConfirm);
           if (cmdTrimmed === "ทำที่เดิม/งานเดิม") {
-            try { props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
+            try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "SAME_SITE", "ยืนยันการทำโอทีที่เดิม");
             if (typeof finalizeClockInSaving === "function") finalizeClockInSaving(dataToProcess, userId, globalReplyToken, dataToProcess.checkStatus, null);
             return ContentService.createTextOutput("OK");
           }
           else if (cmdTrimmed === "เปลี่ยนไซต์/เปลี่ยนงาน") {
             try { 
-              props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`);
-              props.setProperty(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess));
+              cache.remove(`PENDING_OT_CONFIRM_${userId}`);
+              cache.put(`PENDING_OT_DETAILS_${userId}`, JSON.stringify(dataToProcess), 1800);
             } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "CHANGE_SITE", "ร้องขอเปลี่ยนไซต์ทำโอที");
             if (typeof reply === "function") reply(globalReplyToken, "กรุณาพิมพ์ ไซต์งาน / งานที่ทำโอที ครับ");
             return ContentService.createTextOutput("OK");
           }
           else if (cmdTrimmed === "ยกเลิกลงเวลา") {
-            try { props.deleteProperty(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
+            try { cache.remove(`PENDING_OT_CONFIRM_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_OT_CONFIRM", msg, JSON.stringify(dataToProcess), 1.0, "REJECT", "ยกเลิกการลงเวลาช่วงโอที");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
@@ -315,7 +314,7 @@ function handleLineWebhook(requestData, e) {
             return ContentService.createTextOutput("OK");
           }
           else if (cmdTrimmed === "ยกเลิกลงเวลา") {
-            try { props.deleteProperty(`PENDING_CLOCKIN_${userId}`); } catch(e){}
+            try { cache.remove(`PENDING_CLOCKIN_${userId}`); } catch(e){}
             if (typeof logAuditTrail === "function") logAuditTrail(userId, "PROCESS_CLOCKIN_12", msg, pendingClockIn12, 1.0, "REJECT_12", "ยกเลิกการยืนยันเวลาช่วงบ่าย");
             if (typeof reply === "function") reply(globalReplyToken, "❌ ยกเลิกเรียบร้อยครับ");
             return ContentService.createTextOutput("OK");
@@ -546,7 +545,7 @@ function handleClockIn(msg, userId, token) {
     const check = checkDate(data.date);
     
     // 5. ดึงลิสต์ Admin อย่างปลอดภัย (ป้องกัน Error หากไม่มีค่า)
-    const adminIdStr = PropertiesService.getScriptProperties().getProperty("ADMIN_LINE_IDS") || "";
+    const adminIdStr = typeof getDynamicConfig === "function" ? getDynamicConfig("ADMIN_LINE_IDS") || "" : "";
     const adminArray = adminIdStr.split(",").map(id => id.trim());
     const isUserAdmin = adminArray.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
 
@@ -605,7 +604,7 @@ async function checkOTAndProceed(dataToProcess, userId, token, check, targetFile
 
   if (hasOT) {
     dataToProcess.checkStatus = check;
-    PropertiesService.getScriptProperties().setProperty(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess));
+    CacheService.getScriptCache().put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 1800);
     replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
   } else {
     await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
@@ -625,7 +624,7 @@ async function processPendingClockIn(answer, pendingDataStr, userId, token) {
 }
 
 async function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
-  const isTesting = PropertiesService.getScriptProperties().getProperty("IS_TESTING") === "TRUE";
+  const isTesting = typeof getDynamicConfig === "function" ? getDynamicConfig("IS_TESTING") === "TRUE" : false;
   if (!targetId) targetId = getTargetFileIdByDate(data.date);
   if (!targetId) { reply(token, "❌ ไม่พบไฟล์สำหรับเดือนนี้"); return; }
 
@@ -736,8 +735,8 @@ Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52
 }
 
 async function handleUndoLastAction(userId, token) {
-  const props = PropertiesService.getScriptProperties();
-  const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+  const cache = CacheService.getScriptCache();
+  const lastJson = cache.get(`LAST_ENTRY_${userId}`);
   if (!lastJson) {
     reply(token, "⚠️ ไม่พบรายการล่าสุด");
     return;
@@ -745,7 +744,7 @@ async function handleUndoLastAction(userId, token) {
   try {
     const last = JSON.parse(lastJson);
     reply(token, undoLastEntry(last.names[0], last.date));
-    props.deleteProperty(`LAST_ENTRY_${userId}`);
+    cache.remove(`LAST_ENTRY_${userId}`);
   } catch (e) {
     reply(token, "❌ Undo Error");
   }
@@ -785,7 +784,9 @@ async function handleCommands(msg, token, userId) {
 }
 
 function handleTestMode(content, replyToken) {
-  PropertiesService.getScriptProperties().setProperty("IS_TESTING", content === "ทดสอบระบบ" ? "TRUE" : "FALSE");
+  if (typeof setDynamicConfig === "function") {
+    setDynamicConfig("IS_TESTING", content === "ทดสอบระบบ" ? "TRUE" : "FALSE");
+  }
   reply(replyToken, content === "ทดสอบระบบ" ? "🧪 เปิดโหมดทดสอบแล้ว" : "🧹 ปิดโหมดทดสอบแล้ว");
 }
 
