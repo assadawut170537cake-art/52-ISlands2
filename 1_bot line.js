@@ -597,40 +597,67 @@ function handleClockIn(msg, userId, token) {
   }
 }
 
+/**
+ * @description ตรวจสอบและคำนวณระยะเวลาทำงานล่วงเวลา (OT) พร้อมดำเนินการบันทึกหรือถามบริบทเพิ่มเติม
+ * @param {Object} dataToProcess - อ็อบเจกต์ข้อมูลที่แยกมาได้จากข้อความ
+ * @param {string} userId - LINE User ID
+ * @param {string} token - Reply Token
+ * @param {boolean} check - สถานะการตรวจสอบ
+ * @param {string} targetFileId - ไอดีของไฟล์ Google Sheets เป้าหมาย
+ */
 async function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
-  const toMins = (t) => { if (!t) return 0; const parts = t.toString().replace('.', ':').split(':'); return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0); };
-  const sMins = toMins(dataToProcess.time_start);
-  let eMins = toMins(dataToProcess.time_end);
-  let hasOT = false;
-
-  if (eMins > 0) {
-    if (eMins < sMins) eMins += 24 * 60;
+  try {
+    const toMins = (t) => { if (!t) return 0; const parts = t.toString().replace('.', ':').split(':'); return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0); };
+    const sMins = toMins(dataToProcess.time_start);
+    let eMins = toMins(dataToProcess.time_end);
+    let hasOT = false;
     let otMins = 0;
-    if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
-    if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
 
+    // 1. ตรวจสอบโอทีช่วงเช้าและเย็น (ต้องมีการระบุเวลาเลิกงาน eMins > 0)
+    if (eMins > 0) {
+      if (eMins < sMins) eMins += 24 * 60; // กรณีข้ามคืน
+      if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins); // เข้าก่อน 08.00
+      if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020)); // เลิกหลัง 17.00
+    }
+
+    // 2. ตรวจสอบโอทีช่วงเที่ยง (เป็นอิสระจากเวลาเลิกงานตอนเย็น)
     let hasNoonOt = false;
     let noonOtMins = 0;
-    dataToProcess.employees.forEach(emp => {
-      if (emp.has_ot_noon) {
-        hasNoonOt = true;
-        noonOtMins = Math.max(noonOtMins, toMins(emp.ot_noon_out || "13.00") - toMins(emp.ot_noon_in || "12.00"));
-      }
-    });
+    
+    // ตรวจสอบที่ระดับโปรเจกต์รวม
+    if (dataToProcess.has_ot_noon) {
+      hasNoonOt = true;
+      noonOtMins = Math.max(noonOtMins, toMins(dataToProcess.ot_noon_out || "13.00") - toMins(dataToProcess.ot_noon_in || "12.00"));
+    }
+    
+    // ตรวจสอบที่ระดับพนักงานรายบุคคล
+    if (dataToProcess.employees && Array.isArray(dataToProcess.employees)) {
+      dataToProcess.employees.forEach(emp => {
+        if (emp.has_ot_noon) {
+          hasNoonOt = true;
+          noonOtMins = Math.max(noonOtMins, toMins(emp.ot_noon_out || "13.00") - toMins(emp.ot_noon_in || "12.00"));
+        }
+      });
+    }
+
     if (hasNoonOt) otMins += noonOtMins;
     if (otMins > 0) hasOT = true;
-  }
 
-  if (hasOT) {
-    dataToProcess.checkStatus = check;
-    CacheService.getScriptCache().put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 1800);
-    replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, [
-      {label: "ทำที่เดิม/งานเดิม", data: `#ทำที่เดิม/งานเดิม|${dataToProcess.date}`},
-      {label: "เปลี่ยนไซต์/เปลี่ยนงาน", data: `#เปลี่ยนไซต์/เปลี่ยนงาน|${dataToProcess.date}`},
-      {label: "ยกเลิกลงเวลา", data: `#ยกเลิกลงเวลา|${dataToProcess.date}`}
-    ]);
-  } else {
-    await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
+    // 3. ดำเนินการต่อตามสถานะ OT
+    if (hasOT) {
+      dataToProcess.checkStatus = check;
+      CacheService.getScriptCache().put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 1800);
+      replyWithButtons(token, `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, [
+        {label: "ทำที่เดิม/งานเดิม", data: `#ทำที่เดิม/งานเดิม|${dataToProcess.date}`},
+        {label: "เปลี่ยนไซต์/เปลี่ยนงาน", data: `#เปลี่ยนไซต์/เปลี่ยนงาน|${dataToProcess.date}`},
+        {label: "ยกเลิกลงเวลา", data: `#ยกเลิกลงเวลา|${dataToProcess.date}`}
+      ]);
+    } else {
+      await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
+    }
+  } catch (err) {
+    if (typeof logError === "function") logError("checkOTAndProceed_error", err.toString(), JSON.stringify(dataToProcess));
+    reply(token, "🔴 เกิดข้อผิดพลาดในการตรวจสอบเวลา OT กรุณาแจ้ง Admin ครับ");
   }
 }
 
