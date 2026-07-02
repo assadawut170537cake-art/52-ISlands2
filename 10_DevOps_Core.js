@@ -78,18 +78,15 @@ function initializeDevopsWorkspace() {
   }
 
   const wsHeaders = [
-    ["ชื่อไฟล์ (Source File)", "บรรทัด (Line)", "ชื่อฟังก์ชัน (Function)", "โค้ดปัจจุบัน (Current)", "โค้ดใหม่จากพี่ AI (New Update)", "โค้ดผลลัพธ์หลังแก้ไข (Final Code)", "Helper_File_Fill (ซ่อน)", "Helper_Func_Fill (ซ่อน)", "Helper_Is_Mismatch (ซ่อน)"]
+    ["ชื่อไฟล์", "ลำดับที่", "ชื่อฟังก์ชัน", "Function Dependency Mapping", "ข้อมูลที่ต้องการ", "รูปแบบข้อมูล", "คำอธิบายฟังก์ชันอัตโนมัติ", "วันที่ปรับแก้ล่าสุด"]
   ];
-  ws.getRange("A1:I1").setValues(wsHeaders);
+  ws.getRange("A1:H1").setValues(wsHeaders);
 
-  ws.getRange("A1:I1").setFontWeight("bold").setFontColor("#F8FAFC").setBackground("#0F172A").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  ws.getRange("A1:H1").setFontWeight("bold").setFontColor("#F8FAFC").setBackground("#0F172A").setHorizontalAlignment("center").setVerticalAlignment("middle");
   ws.setRowHeight(1, 35); ws.setFrozenRows(1);
-  ws.getRange("A1:I" + maxRows).setFontFamily("Kanit");
-  ws.getRange("D2:F" + maxRows).setFontFamily("Courier New");
-  ws.getRange("D2:F" + maxRows).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-
-  ws.getRange("F2:F" + maxRows).setFormula(`=IF(AND(ISBLANK(D2), ISBLANK(E2)), "", IF(ISBLANK(E2), D2, E2))`);
-  ws.hideColumns(7, 3);
+  ws.getRange("A1:H" + maxRows).setFontFamily("Kanit");
+  ws.getRange("D2:D" + maxRows).setFontFamily("Courier New");
+  ws.getRange("D2:D" + maxRows).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 
   let cl = ss.getSheetByName(SHEET_CHANGELOG);
   if (!cl) cl = ss.insertSheet(SHEET_CHANGELOG, 1);
@@ -108,17 +105,13 @@ function initializeDevopsWorkspace() {
   cl.getRange("H2:H500").setDataValidation(statusValidationRule);
 
   const rules = [];
-  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=AND(NOT(ISBLANK($E2)), $D2<>$E2)`).setBackground("#DCFCE7").setFontColor("#166534").setRanges([ws.getRange("D2:D" + maxRows)]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=AND(NOT(ISBLANK($E2)), $D2<>$E2)`).setBackground("#FCE7F3").setFontColor("#991B1B").setRanges([ws.getRange("E2:E" + maxRows)]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=AND(NOT(ISBLANK($E2)), $D2<>$E2)`).setBackground("#FCE7F3").setFontColor("#991B1B").setRanges([ws.getRange("F2:F" + maxRows)]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=AND(NOT(ISBLANK($C2)), COUNTIFS($H$2:$H$${maxRows}, $C2, $I$2:$I$${maxRows}, 1) > 0)`).setBackground("#FCE7F3").setBold(true).setFontColor("#991B1B").setRanges([ws.getRange("C2:C" + maxRows)]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=AND(NOT(ISBLANK($A2)), COUNTIFS($G$2:$G$${maxRows}, $A2, $I$2:$I$${maxRows}, 1) > 0)`).setBackground("#FCE7F3").setBold(true).setFontColor("#991B1B").setRanges([ws.getRange("A2:A" + maxRows)]).build());
+  // ยกเลิกกฎเปรียบเทียบโค้ดสีเดิมตามโครงสร้างใหม่
   ws.setConditionalFormatRules(rules);
 
   const fileValidationRule = SpreadsheetApp.newDataValidation().requireValueInList(fileList, true).setAllowInvalid(false).setHelpText("โปรดตรวจสอบรายชื่อไฟล์จริงในโครงการปัจจุบันเท่านั้น").build();
   ws.getRange("A2:A" + maxRows).setDataValidation(fileValidationRule);
 
-  ws.setColumnWidth(1, 180); ws.setColumnWidth(2, 60); ws.setColumnWidth(3, 160); ws.setColumnWidth(4, 380); ws.setColumnWidth(5, 380); ws.setColumnWidth(6, 380);
+  ws.setColumnWidth(1, 150); ws.setColumnWidth(2, 60); ws.setColumnWidth(3, 180); ws.setColumnWidth(4, 350); ws.setColumnWidth(5, 180); ws.setColumnWidth(6, 180); ws.setColumnWidth(7, 300); ws.setColumnWidth(8, 120);
   cl.setColumnWidth(1, 160); cl.setColumnWidth(2, 100); cl.setColumnWidth(3, 150); cl.setColumnWidth(4, 150); cl.setColumnWidth(5, 230); cl.setColumnWidth(6, 260); cl.setColumnWidth(7, 400);
 
   let settings = ss.getSheetByName(SHEET_SETTINGS);
@@ -134,71 +127,108 @@ function initializeDevopsWorkspace() {
 }
 
 /**
- * 🔄 ⚡ ฟังก์ชัน One-Click API Sync: ดึงรหัสตรงจาก GAS และสั่งเรียกสาดสีอัตโนมัติทันทีหลังทำงานเสร็จ
+ * 🔄 ⚡ ฟังก์ชัน One-Click API Sync: ดึงรหัสตรงจาก GAS และจัดโครงสร้าง 1 บรรทัดต่อ 1 ฟังก์ชัน
+ * @description ดึงโครงสร้างโค้ดผ่าน API กรองเฉพาะการประกาศฟังก์ชันและคอมเมนต์กำกับ โดยข้ามบรรทัดขยะและโค้ดเนื้อใน
+ * @param {void} ไม่มีพารามิเตอร์อินพุท
+ * @returns {void} นำข้อมูลลงหน้าแผ่นงาน Code_Workspace พร้อมประทับตราว/ด/ป
  */
 function syncDirectFromGAS() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ws = ss.getSheetByName(SHEET_WORKSPACE);
-  if (!ws) throw new Error("ไม่พบหน้าแผ่นงาน Code_Workspace กรุณากด Initialize ก่อน");
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ws = ss.getSheetByName(SHEET_WORKSPACE);
+    if (!ws) throw new Error("ไม่พบหน้าแผ่นงาน Code_Workspace กรุณากด Initialize ก่อน");
 
-  const scriptId = ScriptApp.getScriptId();
-  const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
-  const options = { method: "get", headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true };
-  const response = UrlFetchApp.fetch(url, options);
-  const json = JSON.parse(response.getContentText());
-  
-  if (json.error) throw new Error("❌ API โดนบล็อก: " + json.error.message);
+    const scriptId = ScriptApp.getScriptId();
+    const url = "https://script.googleapis.com/v1/projects/" + scriptId + "/content";
+    const options = { 
+      method: "get", 
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, 
+      muteHttpExceptions: true 
+    };
+    const response = UrlFetchApp.fetch(url, options);
+    const json = JSON.parse(response.getContentText());
+    
+    if (json.error) throw new Error("❌ API โดนบล็อก: " + json.error.message);
 
-  if (ws.getLastRow() > 1) ws.getRange(2, 1, ws.getLastRow() - 1, 9).clearContent();
+    // ล้างข้อมูลเก่าออกก่อน (ล้างตั้งแต่แถว 2 ไปจนจบตาราง เพื่อรองรับข้อมูลชุดใหม่)
+    if (ws.getLastRow() > 1) {
+      ws.getRange(2, 1, ws.getLastRow() - 1, 9).clearContent();
+    }
 
-  const projectFiles = getProjectFileList();
-  let allOutputRows = [];
+    const projectFiles = getProjectFileList();
+    let allOutputRows = [];
 
-  projectFiles.forEach(targetName => {
-    const cleanTargetName = targetName.replace(/\.gs$/, "");
-    const matchedFile = json.files.find(f => f.name === cleanTargetName);
-    if (!matchedFile || !matchedFile.source) return;
+    projectFiles.forEach(targetName => {
+      const cleanTargetName = targetName.replace(/\.gs$/, "");
+      const matchedFile = json.files.find(f => f.name === cleanTargetName);
+      if (!matchedFile || !matchedFile.source) return;
 
-    const lines = matchedFile.source.split(/\r?\n/);
-    let braceCount = 0; let inFunction = false; let currentFunctionName = "";
+      const lines = matchedFile.source.split(/\r?\n/);
+      let currentComment = []; // ตัวแปรเก็บคอมเมนต์ที่อยู่บนหัวฟังก์ชัน
 
-    for (let i = 0; i < lines.length; i++) {
-      const originalLine = lines[i]; const trimmedLine = originalLine.trim();
-      let isFunctionStart = false; let functionName = "";
+      for (let i = 0; i < lines.length; i++) {
+        const originalLine = lines[i]; 
+        const trimmedLine = originalLine.trim();
 
-      const funcMatch = trimmedLine.match(/^(async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(/);
-      if (funcMatch) { isFunctionStart = true; functionName = funcMatch[2]; currentFunctionName = functionName; inFunction = true; }
-      braceCount += (trimmedLine.match(/{/g) || []).length - (trimmedLine.match(/}/g) || []).length;
+        // 1. ข้ามบรรทัดว่าง
+        if (trimmedLine === "") {
+          continue; 
+        }
 
-      allOutputRows.push([
-        isFunctionStart ? targetName : "", "", isFunctionStart ? functionName : "", originalLine, "", "", targetName, currentFunctionName, ""
-      ]);
+        // 2. ถ้าเป็นคอมเมนต์ (ขึ้นต้นด้วย //, /*, *, หรือปิดด้วย */) ให้เก็บสะสมไว้ใน Array แล้วข้ามไปบรรทัดถัดไป
+        if (trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*") || trimmedLine === "*/") {
+          currentComment.push(trimmedLine.replace(/^\/\*\*?|^\*\/|^\* ?|^\/\/ ?/g, "").trim());
+          continue; 
+        }
+        
+        // 3. ตรวจสอบว่าบรรทัดนี้คือจุดเริ่มต้นการประกาศฟังก์ชันหรือไม่
+        const funcMatch = trimmedLine.match(/^(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(/);
+        
+        if (funcMatch) { 
+          const functionName = funcMatch[1];
+          const lineNumber = i + 1; // อิงเลขบรรทัดจริงจากไฟล์ (1-index)
+          
+          // นำคอมเมนต์ที่สะสมไว้มารวมเป็นข้อความเดียว สำหรับหยอดลงคอลัมน์ G
+          const autoDescription = currentComment.filter(c => c !== "").join("\n");
+          
+          // แพ็คข้อมูล 1 แถวต่อ 1 ฟังก์ชัน 
+          allOutputRows.push([
+            targetName,           // Col A: ชื่อไฟล์
+            lineNumber,           // Col B: ตำแหน่งบรรทัด (เลขบรรทัดจริง)
+            functionName,         // Col C: ชื่อฟังก์ชัน
+            "",                   // Col D: Function Dependency Mapping
+            "",                   // Col E: ข้อมูลที่ต้องการ
+            "",                   // Col F: รูปแบบข้อมูล
+            autoDescription,      // Col G: คำอธิบายฟังก์ชันอัตโนมัติ (จากคอมเมนต์)
+            new Date(),           // Col H: วันที่ปรับแก้ล่าสุด (ประทับตราอัตโนมัติ)
+            ""                    // Col I: คอลัมน์ซ่อน (เว้นว่างไว้เพื่อไม่ให้กระทบตาราง)
+          ]);
+          
+          // รีเซ็ตคอมเมนต์เพื่อเตรียมสะสมของฟังก์ชันถัดไป
+          currentComment = [];
+        } else {
+          // 4. หากเป็นโค้ดเนื้อในปกติ ให้ล้างคอมเมนต์ที่สะสมไว้ทิ้ง (ป้องกันการนำคอมเมนต์ลอยๆ ไปใส่ผิดฟังก์ชัน)
+          currentComment = [];
+        }
+      }
+    });
 
-      if (inFunction && braceCount <= 0 && (trimmedLine === "}" || trimmedLine.endsWith("}") || trimmedLine.includes("}"))) {
-        inFunction = false; braceCount = 0; currentFunctionName = "";
-        allOutputRows.push(["", "", "", "", "", "", targetName, "", ""]); 
+    if (allOutputRows.length > 0) {
+      // เทข้อมูลทั้งหมดลงแผ่นงานในรอบเดียว
+      ws.getRange(2, 1, allOutputRows.length, 9).setValues(allOutputRows);
+      
+      // เรียกใช้ฟังก์ชันสาดสีกลุ่มคำซ้ำ (ถ้ามี)
+      if (typeof highlightDuplicateFunctions === 'function') {
+        highlightDuplicateFunctions();
       }
     }
-  });
+    
+    ss.toast("🔄 ดึงข้อมูล 1 บรรทัดต่อ 1 ฟังก์ชัน พร้อมประทับเวลาสำเร็จ!", "DevOps Engine", 5);
 
-  if (allOutputRows.length > 0) {
-    ws.getRange(2, 1, allOutputRows.length, 9).setValues(allOutputRows);
-    const lineNumbers = []; const syncFormulas = []; const diffFormulas = [];
-    const lastRowIndex = allOutputRows.length + 1;
-    
-    for (let k = 0; k < allOutputRows.length; k++) {
-      const r = k + 2; lineNumbers.push([k + 1]);
-      syncFormulas.push([`=IF(AND(ISBLANK(D${r}), ISBLANK(E${r})), "", IF(ISBLANK(E${r}), D${r}, E${r}))`]);
-      diffFormulas.push([`=IF(AND(NOT(ISBLANK(E${r})), D${r}<>E${r}), 1, 0)`]);
-    }
-    ws.getRange("B2:B" + lastRowIndex).setValues(lineNumbers);
-    ws.getRange("F2:F" + lastRowIndex).setFormulas(syncFormulas);
-    ws.getRange("I2:I" + lastRowIndex).setFormulas(diffFormulas);
-    
-    // 🔥 [จุดแก้บั๊ก] สั่งให้ระบบสาดสีกลุ่มคำซ้ำทำงานทันทีหลังดึงข้อมูลเสร็จโดยไม่ต้องรอการพิมพ์จากมนุษย์!
-    highlightDuplicateFunctions();
+  } catch (error) {
+    SpreadsheetApp.getUi().alert("❌ เกิดข้อผิดพลาดในระบบ API Sync: " + error.message);
+    console.error("Error in syncDirectFromGAS: ", error);
   }
-  ss.toast("🔄 ดึงฐานข้อมูลรหัส 14 ไฟล์ลงบอร์ดคอลัมน์ F เรียบร้อย!", "DevOps Engine", 5);
 }
 
 function highlightDuplicateFunctions() {
@@ -347,10 +377,10 @@ function injectCodeFromSidebar(payload) {
     }
   }
 
-  // 🎯 กรณีที่ 1: ตรวจพบฟังก์ชันเดิมอยู่แล้ว -> อัปเดตลง คอลัมน์ E (New Update)
+  // 🎯 กรณีที่ 1: ตรวจพบฟังก์ชันเดิมอยู่แล้ว -> อัปเดตลง คอลัมน์ D (Function Dependency Mapping)
   if (matchRow !== -1) {
-    sheet.getRange(matchRow, 5).setValue(codeToSave);
-    sheet.setActiveRange(sheet.getRange(matchRow, 5));
+    sheet.getRange(matchRow, 4).setValue(codeToSave);
+    sheet.setActiveRange(sheet.getRange(matchRow, 4));
     return "🟢 โมดิฟายฟังก์ชันเดิมสำเร็จ! ระบบลอกคราบหัวไฟล์และหยอดเข้าไฟล์ [" + fileName + "] แถวที่ " + matchRow + " เรียบร้อยครับ";
   } 
   // 🎯 กรณีที่ 2: ไม่พบในระบบ (ฟังก์ชันใหม่เอี่ยม) -> แทรกแถวใหม่ในตำแหน่งที่เหมาะสม
@@ -362,10 +392,10 @@ function injectCodeFromSidebar(payload) {
     sheet.getRange(insertAt, 1).setValue(fileName);
     sheet.getRange(insertAt, 2).setValue(1); 
     sheet.getRange(insertAt, 3).setValue(functionName);
-    sheet.getRange(insertAt, 4).setValue(""); 
-    sheet.getRange(insertAt, 5).setValue(codeToSave); 
+    sheet.getRange(insertAt, 4).setValue(codeToSave); 
+    sheet.getRange(insertAt, 5).setValue(""); 
     
-    sheet.setActiveRange(sheet.getRange(insertAt, 5));
+    sheet.setActiveRange(sheet.getRange(insertAt, 4));
     return "✨ ติดตั้งฟังก์ชันใหม่เอี่ยม! เขียนชื่อไฟล์และชื่อฟังก์ชันลงคอลัมน์ตั้งต้น แถวที่ " + insertAt + " สำเร็จแล้วครับน้อง!";
   }
 }

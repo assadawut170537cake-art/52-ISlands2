@@ -44,6 +44,7 @@ Smart Worksite System เป็นระบบจัดการฐานข้�
 - **`0_Security.js` / `AccessControl.js`**: จัดการสิทธิ์การเข้าถึง (RBAC), ตรวจสอบ Whitelist, และความปลอดภัยต่างๆ
 - **`10_DevOps_Core.js` / `6_DeploymentService.js`**: จัดการเรื่อง CI/CD, การสร้าง Checkpoint, Backup, และ Version Control
 - **`3_BigQueryLogger.js` / `5_CloudLoggingService.js`**: ระบบ Audit Trail เพื่อเก็บ Log เหตุการณ์ลง BigQuery หรือแหล่งอื่นๆ สำหรับการตรวจสอบ
+- **`changelog_syncDirectFromGAS.md`**: ไฟล์สรุปการอัปเดตฟังก์ชันดึงรหัสจาก GAS (1 บรรทัดต่อ 1 ฟังก์ชัน)
 
 ### หน้าจอ Dashboard (Frontend HTML)
 - **`index.html`**, **`SmartWorksiteDashboard.html`**, **`DevOps_Dashboard.html`**, **`Interactive_Manual.html`**, **`InjectorSidebar.html`**: ไฟล์แสดงผลสำหรับหน้า Web App และส่วนขยาย (Add-on/Sidebar)
