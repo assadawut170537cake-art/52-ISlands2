@@ -61,6 +61,8 @@ function isAllowedGroup(groupId) {
 
 /**
  * ดึงฐานข้อมูลรายชื่อพนักงานปัจจุบัน (มีระบบ Cache)
+ * Fetches employee list exclusively from Column B in the "DATA" sheet and caches it for 20 minutes (1200s).
+ * @return {Array<string>} List of employee names.
  */
 function getEmployeeListFromSheet() {
   var cache = CacheService.getScriptCache();
@@ -72,25 +74,24 @@ function getEmployeeListFromSheet() {
   
   var empList = [];
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("รายชื่อพนักงาน");
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DATA");
     if (sheet) {
-      var data = sheet.getRange("B2:C").getValues();
+      // Use Batch Processing: exclusively fetch Column B
+      var data = sheet.getRange("B2:B").getValues();
       
       for (var i = 0; i < data.length; i++) {
-        var empName = data[i][0].toString().trim();
-        var status = data[i][1].toString().trim();
-        
-        if (empName !== "" && (status === "ปกติ" || status === "ทำงาน" || status === "")) {
+        var empName = data[i][0] ? data[i][0].toString().trim() : "";
+        if (empName !== "") {
           empList.push(empName);
         }
       }
     }
   } catch(e) {
-     Logger.log("Error reading employee list: " + e);
+     if (typeof Logger !== 'undefined') Logger.log("Error reading employee list: " + e);
   }
   
   if (empList.length > 0) {
-    cache.put("EMPLOYEE_LIST", JSON.stringify(empList), 3600);
+    cache.put("EMPLOYEE_LIST", JSON.stringify(empList), 1200); // Cache for 20 minutes
   }
   
   return empList;

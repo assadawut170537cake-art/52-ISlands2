@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --bg-main: #F8FAFC;
+        --bg-card: #FFFFFF;
+        --text-primary: #1E293B;
+        --text-secondary: #64748B;
+        --border-color: #E2E8F0;
+        --primary-color: #0284C7;
+        --primary-hover: #0369A1;
+        --danger-color: #DC2626;
+        --success-color: #16A34A;
+      }
+      
+      body {
+        font-family: 'Kanit', sans-serif;
+        background-color: var(--bg-main);
+        color: var(--text-primary);
+        margin: 0;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+      
+      h2 {
+        font-size: 1.25rem;
+        margin-top: 0;
+        margin-bottom: 16px;
+        color: var(--primary-color);
+        border-bottom: 2px solid var(--border-color);
+        padding-bottom: 8px;
+      }
+      
+      .section {
+        background-color: var(--bg-card);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border: 1px solid var(--border-color);
+      }
+      
+      .form-group {
+        margin-bottom: 12px;
+      }
+      
+      label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 4px;
+        color: var(--text-secondary);
+      }
+      
+      input[type="text"],
+      input[type="password"] {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-family: 'Kanit', sans-serif;
+        box-sizing: border-box;
+        transition: border-color 0.2s;
+      }
+      
+      input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+      }
+      
+      .btn {
+        width: 100%;
+        padding: 10px;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        font-family: 'Kanit', sans-serif;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+      
+      .btn-primary {
+        background-color: var(--primary-color);
+        color: white;
+      }
+      
+      .btn-primary:hover {
+        background-color: var(--primary-hover);
+      }
+      
+      .status {
+        margin-top: 8px;
+        font-size: 0.875rem;
+        text-align: center;
+        min-height: 20px;
+      }
+      
+      .status.success { color: var(--success-color); }
+      .status.error { color: var(--danger-color); }
+      
+      .loader {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid var(--primary-color);
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 8px;
+        display: none;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Section 1: Secret Settings -->
+    <div class="section">
+      <h2>🔒 ข้อมูลความลับ (Secrets)</h2>
+      
+      <div class="form-group">
+        <label for="lineToken">LINE Channel Access Token</label>
+        <input type="password" id="lineToken" placeholder="กรอก Token ของคุณ">
+      </div>
+      
+      <div class="form-group">
+        <label for="geminiKey">Gemini API Key</label>
+        <input type="password" id="geminiKey" placeholder="กรอก API Key ของคุณ">
+      </div>
+      
+      <button class="btn btn-primary" onclick="saveSecrets()" id="btnSecrets">
+        <div class="loader" id="loaderSecrets"></div>บันทึกข้อมูลความลับ
+      </button>
+      <div id="statusSecrets" class="status"></div>
+    </div>
+    
+    <!-- Section 2: Business Data -->
+    <div class="section">
+      <h2>🏢 ข้อมูลธุรกิจ (Business Data)</h2>
+      
+      <div class="form-group">
+        <label for="siteName">ชื่อไซท์งานเริ่มต้น (Default Site)</label>
+        <input type="text" id="siteName" placeholder="เช่น ไซท์ A">
+      </div>
+      
+      <div class="form-group">
+        <label for="wageRate">อัตราค่าแรง (บาท/วัน)</label>
+        <input type="text" id="wageRate" placeholder="เช่น 400">
+      </div>
+      
+      <button class="btn btn-primary" onclick="saveBusiness()" id="btnBusiness">
+        <div class="loader" id="loaderBusiness"></div>บันทึกข้อมูลธุรกิจ
+      </button>
+      <div id="statusBusiness" class="status"></div>
+    </div>
+
+    <script>
+      function setStatus(id, msg, isError = false) {
+        const el = document.getElementById(id);
+        el.textContent = msg;
+        el.className = 'status ' + (isError ? 'error' : 'success');
+        setTimeout(() => { el.textContent = ''; }, 5000);
+      }
+      
+      function toggleLoading(btnId, loaderId, isLoading) {
+        document.getElementById(btnId).disabled = isLoading;
+        document.getElementById(loaderId).style.display = isLoading ? 'inline-block' : 'none';
+      }
+
+      function loadCurrentSettings() {
+        google.script.run.withSuccessHandler(function(data) {
+          if(data) {
+            document.getElementById('lineToken').value = data.lineToken || '';
+            document.getElementById('geminiKey').value = data.geminiKey || '';
+            document.getElementById('siteName').value = data.siteName || '';
+            document.getElementById('wageRate').value = data.wageRate || '';
+          }
+        }).getSettingsData();
+      }
+
+      function saveSecrets() {
+        const payload = {
+          lineToken: document.getElementById('lineToken').value,
+          geminiKey: document.getElementById('geminiKey').value
+        };
+        
+        toggleLoading('btnSecrets', 'loaderSecrets', true);
+        
+        google.script.run
+          .withSuccessHandler(function(res) {
+            toggleLoading('btnSecrets', 'loaderSecrets', false);
+            setStatus('statusSecrets', '✅ บันทึกข้อมูลความลับสำเร็จ');
+          })
+          .withFailureHandler(function(err) {
+            toggleLoading('btnSecrets', 'loaderSecrets', false);
+            setStatus('statusSecrets', '❌ เกิดข้อผิดพลาด: ' + err.message, true);
+          })
+          .saveSecretSettings(payload);
+      }
+      
+      function saveBusiness() {
+        const payload = {
+          siteName: document.getElementById('siteName').value,
+          wageRate: document.getElementById('wageRate').value
+        };
+        
+        toggleLoading('btnBusiness', 'loaderBusiness', true);
+        
+        google.script.run
+          .withSuccessHandler(function(res) {
+            toggleLoading('btnBusiness', 'loaderBusiness', false);
+            setStatus('statusBusiness', '✅ บันทึกข้อมูลธุรกิจสำเร็จ');
+          })
+          .withFailureHandler(function(err) {
+            toggleLoading('btnBusiness', 'loaderBusiness', false);
+            setStatus('statusBusiness', '❌ เกิดข้อผิดพลาด: ' + err.message, true);
+          })
+          .saveBusinessSettings(payload);
+      }
+      
+      // Load data on start
+      window.onload = loadCurrentSettings;
+    </script>
+  </body>
+</html>

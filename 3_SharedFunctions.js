@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------
 function fetchWithRetry(url, payload, isJson, attempts = 3, backoffMs = 500) {
   const options = { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true };
+  let lastError = null;
   for (let i = 0; i < attempts; i++) {
     try {
       const res = UrlFetchApp.fetch(url, options);
@@ -17,9 +18,15 @@ function fetchWithRetry(url, payload, isJson, attempts = 3, backoffMs = 500) {
           if (isJson) return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
           return text;
         }
+      } else {
+        lastError = `HTTP Error: ${res.getResponseCode()} - ${res.getContentText()}`;
       }
-    } catch (e) { Utilities.sleep(backoffMs * Math.pow(2, i)); }
+    } catch (e) {
+      lastError = e.message;
+      Utilities.sleep(backoffMs * Math.pow(2, i)); 
+    }
   }
+  console.error("[ERROR] fetchWithRetry ล้มเหลวครบทุกครั้ง (" + attempts + " attempts): " + lastError);
   return null;
 }
 
@@ -155,14 +162,60 @@ function parseComplexMessage(text) {
 
 
 
+/**
+ * Calculates work hours and OT based on start and end times, and writes to sheet.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The target sheet
+ * @param {number} row - The row index to write
+ * @param {string|number} sT - Start time (e.g. "08.00" or "08:00")
+ * @param {string|number} eT - End time
+ * @param {boolean} isN - Has noon OT
+ * @param {string} nI - Noon OT In
+ * @param {string} nO - Noon OT Out
+ * @return {number} Calculated total OT hours
+ */
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
-  if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
+  if (!eT || eT.toString().trim() === "") { 
+    if (typeof executeWithLock === 'function') {
+      executeWithLock(() => {
+        sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); 
+        sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent();
+      });
+    } else {
+      sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); 
+      sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent();
+    }
+    return 0; 
+  }
+  
   const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
   const toF = (m) => { let h = Math.floor(m/60)%24; return (h<10?"0"+h:h)+"."+(m%60<10?"0"+m%60:m%60); };
   const toHrs = (m) => parseFloat((m / 60).toFixed(2));
 
-  const s = toM(sT); let e = toM(eT); if(e===0) return 0;
-  if(e<s) e+=1440;
+  let s = 0; let e = 0;
+  try {
+    const parseTime = (t) => {
+      const p = t.toString().split(/[.:]/);
+      let d = new Date();
+      d.setHours(parseInt(p[0]) || 0, parseInt(p[1]) || 0, 0, 0);
+      return d;
+    };
+    
+    let startDate = parseTime(sT);
+    let endDate = parseTime(eT);
+    
+    if (endDate < startDate) {
+      endDate.setDate(endDate.getDate() + 1);
+    }
+    
+    s = startDate.getHours() * 60 + startDate.getMinutes();
+    let endDayOffset = (endDate.getDate() !== startDate.getDate()) ? 1440 : 0;
+    e = endDate.getHours() * 60 + endDate.getMinutes() + endDayOffset;
+    if(e===0) return 0;
+  } catch (err) {
+    if (typeof Logger !== 'undefined') Logger.log("Time parsing error: " + err);
+    return 0;
+  }
+
   let otData = ["","","","","","",""]; let otT = 0; let normHr = "";
 
   if(s<480) { otData[0]=toF(s); otData[1]="08.00"; otT+=(480-s); }
@@ -175,10 +228,18 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
   if(e>1020) { otData[4]="17.00"; otData[5]=toF(e); otT+=(e-1020); }
   if(otT>0) otData[6]=toHrs(otT); 
 
-  sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
-  sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
+  if (typeof executeWithLock === 'function') {
+    executeWithLock(() => {
+      sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
+      sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
+    });
+  } else {
+    sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
+    sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
+  }
   return toHrs(otT);
 }
+
 
 // -----------------------------------------------------------------
 // 🛠️ 4. Helpers จัดการวันที่, ข้อผิดพลาด, และดึงข้อมูลช่าง
@@ -355,7 +416,12 @@ function logAuditTrail(userId, actionType, inputRaw, machineStructured, confiden
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
-    
+  } catch (lockErr) {
+    console.error("[CRITICAL] ระบบ AuditTrail ไม่สามารถขอ Lock ได้: " + lockErr.message);
+    return;
+  }
+  
+  try {
     var dbId = PropertiesService.getScriptProperties().getProperty("EXTERNAL_DATABASE_ID");
     var ss;
     if (dbId) {
@@ -407,28 +473,31 @@ function createDashboardMenu() {
   sheet.clear();
   sheet.getDataRange().clearDataValidations();
   sheet.setHiddenGridlines(true);
-  sheet.getRange(1, 1, 30, 15).setBackground("#F8FAFC");
-  sheet.setTabColor("#0F172A");
+  
+  const COLORS = GLOBAL_CONFIG.COLORS || { BG_MAIN: "#F8FAFC", TAB: "#0F172A", HEADER_BG: "#0F172A", TEXT_WHITE: "#FFFFFF", SUB_HEADER: "#1E293B", HIGHLIGHT_BORDER: "#38BDF8", HIGHLIGHT_BG: "#E0F2FE", HIGHLIGHT_TEXT: "#0284C7", NORMAL_BG: "#FFFFFF", NORMAL_BORDER: "#CBD5E1", NORMAL_TEXT: "#334155", GRAY_TEXT: "#64748B" };
+
+  sheet.getRange(1, 1, 30, 15).setBackground(COLORS.BG_MAIN);
+  sheet.setTabColor(COLORS.TAB);
   
   sheet.setColumnWidth(1, 40); sheet.setColumnWidth(2, 45); sheet.setColumnWidth(3, 170); sheet.setColumnWidth(4, 30);
   sheet.setColumnWidth(5, 45); sheet.setColumnWidth(6, 170); sheet.setColumnWidth(7, 30);
   sheet.setColumnWidth(8, 45); sheet.setColumnWidth(9, 170); sheet.setColumnWidth(10, 40);
   
-  sheet.getRange("B2:I4").merge().setBackground("#0F172A").setValue("🏢 SMART WORKSITE DASHBOARD")
-    .setFontColor("#FFFFFF").setFontSize(24).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle")
-    .setBorder(true, true, true, true, false, false, "#0F172A", SpreadsheetApp.BorderStyle.SOLID_THICK);
+  sheet.getRange("B2:I4").merge().setBackground(COLORS.HEADER_BG).setValue("🏢 SMART WORKSITE DASHBOARD")
+    .setFontColor(COLORS.TEXT_WHITE).setFontSize(24).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle")
+    .setBorder(true, true, true, true, false, false, COLORS.HEADER_BG, SpreadsheetApp.BorderStyle.SOLID_THICK);
   
-  sheet.getRange("B5:I5").merge().setBackground("#1E293B").setValue("💡 กดติ๊กถูก ☑️ ที่กล่องด้านซ้าย เพื่อเปิดเอกสาร (คลิกเพียง 1 ครั้ง)")
-    .setFontColor("#38BDF8").setFontSize(11).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
+  sheet.getRange("B5:I5").merge().setBackground(COLORS.SUB_HEADER).setValue("💡 กดติ๊กถูก ☑️ ที่กล่องด้านซ้าย เพื่อเปิดเอกสาร (คลิกเพียง 1 ครั้ง)")
+    .setFontColor(COLORS.HIGHLIGHT_BORDER).setFontSize(11).setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle");
   
   let unprotectedRanges = [sheet.getRange("A1")];
   
   function createPillButton(row, colCheck, colText, icon, label, isHighlight = false) {
     const checkCell = sheet.getRange(row, colCheck); 
     const textCell = sheet.getRange(row, colText);
-    const bgColor = isHighlight ? "#E0F2FE" : "#FFFFFF"; 
-    const borderColor = isHighlight ? "#38BDF8" : "#CBD5E1"; 
-    const textColor = isHighlight ? "#0284C7" : "#334155";
+    const bgColor = isHighlight ? COLORS.HIGHLIGHT_BG : COLORS.NORMAL_BG; 
+    const borderColor = isHighlight ? COLORS.HIGHLIGHT_BORDER : COLORS.NORMAL_BORDER; 
+    const textColor = isHighlight ? COLORS.HIGHLIGHT_TEXT : COLORS.NORMAL_TEXT;
     
     checkCell.insertCheckboxes().setBackground(bgColor).setHorizontalAlignment("center").setVerticalAlignment("middle")
       .setBorder(true, true, true, false, false, false, borderColor, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
@@ -438,7 +507,7 @@ function createDashboardMenu() {
     unprotectedRanges.push(checkCell);
   }
   
-  sheet.getRange("B7:I7").merge().setValue("⚙️ ส่วนจัดการระบบ (System)").setFontWeight("bold").setFontColor("#64748B").setFontSize(11);
+  sheet.getRange("B7:I7").merge().setValue("⚙️ ส่วนจัดการระบบ (System)").setFontWeight("bold").setFontColor(COLORS.GRAY_TEXT).setFontSize(11);
   createPillButton(9, 2, 3, GLOBAL_CONFIG.ICONS.SYSTEM.SUMMARY, "สรุปภาพรวมปี"); 
   createPillButton(9, 5, 6, GLOBAL_CONFIG.ICONS.SYSTEM.DATA, "ฐานข้อมูล (Admin)");
   createPillButton(11, 2, 3, GLOBAL_CONFIG.ICONS.SYSTEM.GUIDE, "คู่มือการใช้งาน"); 
@@ -618,6 +687,26 @@ function getLineContentAsBlob(messageId) {
   return null;
 }
 
+/**
+ * Executes a callback function while holding a lock to prevent race conditions.
+ * @param {Function} callback - The function to execute securely.
+ * @param {number} [timeout=10000] - Timeout in milliseconds to wait for the lock.
+ * @return {*} The result of the callback.
+ * @throws {Error} If lock cannot be acquired or callback throws.
+ */
+function executeWithLock(callback, timeout = 10000) {
+  const lock = LockService.getScriptLock();
+  try {
+    if (lock.tryLock(timeout)) {
+      return callback();
+    } else {
+      throw new Error("Could not obtain lock after " + timeout + "ms.");
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function getUserProfile(userId) {
   if (!userId) return "Unknown";
   try {
@@ -641,7 +730,12 @@ function getUserProfile(userId) {
 
 function logMessageHistory(userId, displayName, message) {
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  try {
+    lock.waitLock(10000);
+  } catch (lockErr) {
+    console.error("[CRITICAL] logMessageHistory ไม่สามารถขอ Lock ได้: " + lockErr.message);
+    return;
+  }
   try {
     const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
     const sheetName = getDynamicConfig("HISTORY_SHEET_NAME") || "Chat_History";

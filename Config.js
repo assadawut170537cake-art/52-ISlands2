@@ -33,7 +33,21 @@ var GLOBAL_CONFIG = {
   "COL_OT_N_IN": 13, "COL_OT_N_OUT": 14,
   "COL_OT_E_IN": 15, "COL_OT_E_OUT": 16,
   "COL_OT_TOTAL": 17,
-  "COL_ACCOM": 20
+  "COL_ACCOM": 20,
+  "COLORS": {
+    "BG_MAIN": "#F8FAFC",
+    "TAB": "#0F172A",
+    "HEADER_BG": "#0F172A",
+    "SUB_HEADER": "#1E293B",
+    "TEXT_WHITE": "#FFFFFF",
+    "HIGHLIGHT_BG": "#E0F2FE",
+    "HIGHLIGHT_BORDER": "#38BDF8",
+    "HIGHLIGHT_TEXT": "#0284C7",
+    "NORMAL_BG": "#FFFFFF",
+    "NORMAL_BORDER": "#CBD5E1",
+    "NORMAL_TEXT": "#334155",
+    "GRAY_TEXT": "#64748B"
+  }
 };
 
 // ฟังก์ชันเช็ค Admin ที่แม่นยำที่สุด
