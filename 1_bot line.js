@@ -104,8 +104,17 @@ function replyWithButtons(tk, t, b) {
   }
 }
 
+/**
+ * รับ Request จาก Webhook (LINE และ Web App) และทำหน้าที่เป็น Orchestrator
+ * @param {Object} e - Event Object จาก Google Apps Script (มี e.postData)
+ */
 function doPost(e) {
+  // 🛡️ เปิดใช้งานระบบ LockService เพื่อป้องกันพนักงานส่งข้อมูลชนกัน (Race Condition)
+  const lock = LockService.getScriptLock();
   try {
+    // ⏳ รอ Lock ไม่เกิน 10 วินาที หากมีการประมวลผลอยู่
+    lock.waitLock(10000);
+    
     // 🟢 โค้ดผสานระดับโปร V11: เชื่อม Gateway Orchestrator เข้ากับ Multi-Agent & State Cache Engine
     if (!e || !e.postData || !e.postData.contents) {
       return ContentService.createTextOutput(JSON.stringify({ status: "ERROR", message: "No data received" }))
@@ -143,91 +152,102 @@ function doPost(e) {
     }
     return ContentService.createTextOutput(JSON.stringify({ status: "CRASH", error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    // 🔓 ปลดล็อคเสมอเพื่อป้องกัน Deadlock
+    lock.release();
   }
 }
 
-// 🌟 ฟังก์ชันคุมสัญญาณประมวลผล LINE Bot ร่วมกับระบบ Cache State Machine
+/**
+ * ฟังก์ชันประมวลผล Webhook จาก LINE (แยกแยะข้อความและ Postback)
+ * @param {Object} requestData - ข้อมูล JSON ที่แปลงมาจาก e.postData.contents
+ * @param {Object} e - Event Object ดั้งเดิมจาก Google Apps Script
+ */
 function handleLineWebhook(requestData, e) {
   var event = requestData.events[0];
   if (!event) return ContentService.createTextOutput("OK");
-  
-  var source = event.source;
-  var groupId = source.groupId;
+    
+    var source = event.source;
+    var groupId = source.groupId;
 
-  if (event.type === "message" || event.type === "postback") {
-    let globalReplyToken = event.replyToken;
-    try {
-      const userId = source.userId;
-      const adminId = typeof getDynamicConfig === "function" ? getDynamicConfig("ADMIN_LINE_IDS") : "";
-      const adminList = (adminId || "").split(",").map(id => id.trim());
-      const status = typeof getDynamicConfig === "function" ? getDynamicConfig("SYSTEM_STATUS") : "ON";
-      const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
+    // 1. เพิ่มเงื่อนไขเพื่อดักจับ 'postback' ควบคู่ไปกับ 'message'
+    if (event.type === "message" || event.type === "postback") {
+      let globalReplyToken = event.replyToken;
+      try {
+        const userId = source.userId;
+        const adminId = typeof getDynamicConfig === "function" ? getDynamicConfig("ADMIN_LINE_IDS") : "";
+        const adminList = (adminId || "").split(",").map(id => id.trim());
+        const status = typeof getDynamicConfig === "function" ? getDynamicConfig("SYSTEM_STATUS") : "ON";
+        const isUserAdmin = adminList.includes(userId) || (typeof isAdmin === "function" && isAdmin(userId));
 
-      let msg = "";
-      let isTextMsg = false;
-      let messageId = event.message ? event.message.id : null;
-      let imageBlob = null;
-      
-      if (event.type === "postback") {
-         msg = event.postback.data.trim();
-         isTextMsg = true;
-      } else if (event.message && event.message.type === "text") {
-         msg = event.message.text.trim();
-         isTextMsg = true;
-      } else if (event.message && event.message.type === "image") {
-         msg = "[ส่งรูปภาพ]";
-         if (typeof getLineContentAsBlob === "function") {
-           imageBlob = getLineContentAsBlob(messageId);
-         }
-      } else if (event.message && event.message.type === "sticker") {
-         msg = "[ส่งสติกเกอร์]";
-      } else if (event.message && event.message.type === "video") {
-         msg = "[ส่งวิดีโอ]";
-      } else if (event.message && event.message.type === "audio") {
-         msg = "[ส่งข้อความเสียง]";
-      } else if (event.message && event.message.type === "location") {
-         msg = "[ส่งพิกัดตำแหน่ง: " + (event.message.address || "") + "]";
-      } else if (event.message) {
-         msg = "[ส่งข้อมูลประเภท: " + event.message.type + "]";
-      }
-
-      // --- ส่วนเสริม: แจ้งเตือนและเก็บบันทึกข้อความแชท (ทุกประเภท) ---
-      if (msg !== "") {
-        if (typeof getUserProfile === "function" && typeof sendLineNotify === "function" && typeof logMessageHistory === "function") {
-          const displayName = getUserProfile(userId);
-          const notifyMsg = "\nมีข้อความใหม่จาก: " + displayName + "\nข้อความ: " + msg;
-          sendLineNotify(notifyMsg, imageBlob);
-          logMessageHistory(userId, displayName, msg);
-        }
-      }
-      // ---------------------------------------------
-
-      if (isTextMsg) {
+        // 2. สร้างกลไกแยกแยะและรวมศูนย์ข้อมูล (Normalization)
+        let actionData = "";
+        let isTextMsg = false;
+        let messageId = event.message ? event.message.id : null;
+        let imageBlob = null;
         
-        // [PRE-GUARD]: อนุญาตให้คำสั่งขอ ID พื้นฐานทำงานได้แม้กลุ่มยังไม่ได้อยู่ใน Whitelist
-        let cmdTrimmed = msg.startsWith("#") ? msg.substring(1).trim() : msg;
-        let payloadDate = null;
-        
-        // กรองเอาเฉพาะคำสั่งหลัก ไม่เอา payload ที่แนบมา (ป้องกัน error cmdTrimmed ไม่ตรงกับเงื่อนไข)
-        if (cmdTrimmed.includes("|")) {
-          const parts = cmdTrimmed.split("|");
-          cmdTrimmed = parts[0].trim();
-          payloadDate = parts.length > 1 ? parts[1].trim() : null;
+        if (event.type === "postback") {
+           actionData = event.postback.data.trim();
+           isTextMsg = true;
+        } else if (event.message && event.message.type === "text") {
+           actionData = event.message.text.trim();
+           isTextMsg = true;
+        } else if (event.message && event.message.type === "image") {
+           actionData = "[ส่งรูปภาพ]";
+           if (typeof getLineContentAsBlob === "function") {
+             imageBlob = getLineContentAsBlob(messageId);
+           }
+        } else if (event.message && event.message.type === "sticker") {
+           actionData = "[ส่งสติกเกอร์]";
+        } else if (event.message && event.message.type === "video") {
+           actionData = "[ส่งวิดีโอ]";
+        } else if (event.message && event.message.type === "audio") {
+           actionData = "[ส่งข้อความเสียง]";
+        } else if (event.message && event.message.type === "location") {
+           actionData = "[ส่งพิกัดตำแหน่ง: " + (event.message.address || "") + "]";
+        } else if (event.message) {
+           actionData = "[ส่งข้อมูลประเภท: " + event.message.type + "]";
         }
-        
-        if (cmdTrimmed === "ขอไอดีแอดมิน") {
-          if (typeof reply === "function") reply(globalReplyToken, "🔑 LINE User ID ของคุณคือ:\n" + userId);
-          return ContentService.createTextOutput("OK");
-        }
-  
-        if (/^(เช็คไอดีกลุ่ม|ไอดีกลุ่ม|groupid)$/i.test(cmdTrimmed)) {
-          if (source.type === "group") {
-            if (typeof reply === "function") reply(globalReplyToken, `🆔 **LINE Group ID ของกลุ่มนี้คือ:**\n\n\`${groupId}\`\n\n*(สามารถคัดลอกไปใช้ตั้งค่าในระบบสคริปต์ได้ทันที)*`);
-          } else {
-            if (typeof reply === "function") reply(globalReplyToken, "⚠️ คำสั่งนี้ใช้ได้เฉพาะการพิมพ์ภายใน 'ไลน์กลุ่ม' เท่านั้นครับ");
+
+        // --- ส่วนเสริม: แจ้งเตือนและเก็บบันทึกข้อความแชท (ทุกประเภท) ---
+        let msg = actionData; // Alias fallback for legacy code
+        if (actionData !== "") {
+          if (typeof getUserProfile === "function" && typeof sendLineNotify === "function" && typeof logMessageHistory === "function") {
+            const displayName = getUserProfile(userId);
+            const notifyMsg = "\nมีข้อความใหม่จาก: " + displayName + "\nข้อความ: " + actionData;
+            sendLineNotify(notifyMsg, imageBlob);
+            logMessageHistory(userId, displayName, actionData);
           }
-          return ContentService.createTextOutput("OK");
         }
+        // ---------------------------------------------
+
+        // 3. นำตัวแปรกลางนั้นส่งต่อเข้าไปทำงาน
+        if (isTextMsg) {
+          
+          // [PRE-GUARD]: อนุญาตให้คำสั่งขอ ID พื้นฐานทำงานได้แม้กลุ่มยังไม่ได้อยู่ใน Whitelist
+          let cmdTrimmed = actionData.startsWith("#") ? actionData.substring(1).trim() : actionData;
+          let payloadDate = null;
+          
+          // กรองเอาเฉพาะคำสั่งหลัก ไม่เอา payload ที่แนบมา (ป้องกัน error cmdTrimmed ไม่ตรงกับเงื่อนไข)
+          if (cmdTrimmed.includes("|")) {
+            const parts = cmdTrimmed.split("|");
+            cmdTrimmed = parts[0].trim();
+            payloadDate = parts.length > 1 ? parts[1].trim() : null;
+          }
+          
+          if (cmdTrimmed === "ขอไอดีแอดมิน") {
+            if (typeof reply === "function") reply(globalReplyToken, "🔑 LINE User ID ของคุณคือ:\n" + userId);
+            return ContentService.createTextOutput("OK");
+          }
+    
+          if (/^(เช็คไอดีกลุ่ม|ไอดีกลุ่ม|groupid)$/i.test(cmdTrimmed)) {
+            if (source.type === "group") {
+              if (typeof reply === "function") reply(globalReplyToken, `🆔 **LINE Group ID ของกลุ่มนี้คือ:**\n\n\`${groupId}\`\n\n*(สามารถคัดลอกไปใช้ตั้งค่าในระบบสคริปต์ได้ทันที)*`);
+            } else {
+              if (typeof reply === "function") reply(globalReplyToken, "⚠️ คำสั่งนี้ใช้ได้เฉพาะการพิมพ์ภายใน 'ไลน์กลุ่ม' เท่านั้นครับ");
+            }
+            return ContentService.createTextOutput("OK");
+          }
 
         // [GUARD CLAUSE 1]: ตรวจสอบสิทธิ์กลุ่ม (Whitelist Group)
         if (source.type === "group" && typeof isAllowedGroup === "function" && !isAllowedGroup(groupId)) {

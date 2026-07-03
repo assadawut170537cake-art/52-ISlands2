@@ -107,17 +107,6 @@ function writeToDailySheetBatch(data, userId, fileId) {
 /**
  * คำนวณเวลาทำงานปกติและ OT ตามมาตรฐาน CORE_DB
  */
-/**
- * Calculates work hours and OT based on start/end times and updates an in-memory block array.
- * @param {Array<Array<any>>} block - The data block array representing spreadsheet rows
- * @param {number} rowIndex - The index in the block
- * @param {string|number} sT - Start time
- * @param {string|number} eT - End time
- * @param {boolean} isN - Has noon OT
- * @param {string} nI - Noon OT In
- * @param {string} nO - Noon OT Out
- * @return {number} Calculated OT hours
- */
 function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
   if (!eT || eT.toString().trim() === "") {
     block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = "";
@@ -129,31 +118,9 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
   const toF = (m) => { let h = Math.floor(m / 60) % 24; return (h < 10 ? "0" + h : h) + "." + (m % 60 < 10 ? "0" + m % 60 : m % 60); };
   const toHrs = (m) => parseFloat((m / 60).toFixed(2));
 
-  let s = 0; let e = 0;
-  try {
-    const parseTime = (t) => {
-      const p = t.toString().replace('.', ':').split(':');
-      let d = new Date();
-      d.setHours(parseInt(p[0]) || 0, parseInt(p[1]) || 0, 0, 0);
-      return d;
-    };
-
-    let startDate = parseTime(sT);
-    let endDate = parseTime(eT);
-    
-    if (endDate < startDate) {
-      endDate.setDate(endDate.getDate() + 1);
-    }
-    
-    s = startDate.getHours() * 60 + startDate.getMinutes();
-    let endDayOffset = (endDate.getDate() !== startDate.getDate()) ? 1440 : 0;
-    e = endDate.getHours() * 60 + endDate.getMinutes() + endDayOffset;
-    
-    if (e === 0) return 0;
-  } catch (err) {
-    if (typeof Logger !== 'undefined') Logger.log("Time parsing error: " + err);
-    return 0;
-  }
+  const s = toM(sT); let e = toM(eT);
+  if (e === 0) return 0;
+  if (e < s) e += 1440; 
 
   let otData = ["", "", "", "", "", "", ""];
   let otT = 0; let normHr = "";

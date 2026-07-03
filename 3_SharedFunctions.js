@@ -162,60 +162,14 @@ function parseComplexMessage(text) {
 
 
 
-/**
- * Calculates work hours and OT based on start and end times, and writes to sheet.
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - The target sheet
- * @param {number} row - The row index to write
- * @param {string|number} sT - Start time (e.g. "08.00" or "08:00")
- * @param {string|number} eT - End time
- * @param {boolean} isN - Has noon OT
- * @param {string} nI - Noon OT In
- * @param {string} nO - Noon OT Out
- * @return {number} Calculated total OT hours
- */
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
-  if (!eT || eT.toString().trim() === "") { 
-    if (typeof executeWithLock === 'function') {
-      executeWithLock(() => {
-        sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); 
-        sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent();
-      });
-    } else {
-      sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); 
-      sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent();
-    }
-    return 0; 
-  }
-  
+  if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
   const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
   const toF = (m) => { let h = Math.floor(m/60)%24; return (h<10?"0"+h:h)+"."+(m%60<10?"0"+m%60:m%60); };
   const toHrs = (m) => parseFloat((m / 60).toFixed(2));
 
-  let s = 0; let e = 0;
-  try {
-    const parseTime = (t) => {
-      const p = t.toString().split(/[.:]/);
-      let d = new Date();
-      d.setHours(parseInt(p[0]) || 0, parseInt(p[1]) || 0, 0, 0);
-      return d;
-    };
-    
-    let startDate = parseTime(sT);
-    let endDate = parseTime(eT);
-    
-    if (endDate < startDate) {
-      endDate.setDate(endDate.getDate() + 1);
-    }
-    
-    s = startDate.getHours() * 60 + startDate.getMinutes();
-    let endDayOffset = (endDate.getDate() !== startDate.getDate()) ? 1440 : 0;
-    e = endDate.getHours() * 60 + endDate.getMinutes() + endDayOffset;
-    if(e===0) return 0;
-  } catch (err) {
-    if (typeof Logger !== 'undefined') Logger.log("Time parsing error: " + err);
-    return 0;
-  }
-
+  const s = toM(sT); let e = toM(eT); if(e===0) return 0;
+  if(e<s) e+=1440;
   let otData = ["","","","","","",""]; let otT = 0; let normHr = "";
 
   if(s<480) { otData[0]=toF(s); otData[1]="08.00"; otT+=(480-s); }
@@ -228,18 +182,10 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
   if(e>1020) { otData[4]="17.00"; otData[5]=toF(e); otT+=(e-1020); }
   if(otT>0) otData[6]=toHrs(otT); 
 
-  if (typeof executeWithLock === 'function') {
-    executeWithLock(() => {
-      sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
-      sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
-    });
-  } else {
-    sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
-    sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
-  }
+  sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
+  sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
   return toHrs(otT);
 }
-
 
 // -----------------------------------------------------------------
 // 🛠️ 4. Helpers จัดการวันที่, ข้อผิดพลาด, และดึงข้อมูลช่าง
@@ -685,26 +631,6 @@ function getLineContentAsBlob(messageId) {
     console.error("getLineContentAsBlob error:", e.message);
   }
   return null;
-}
-
-/**
- * Executes a callback function while holding a lock to prevent race conditions.
- * @param {Function} callback - The function to execute securely.
- * @param {number} [timeout=10000] - Timeout in milliseconds to wait for the lock.
- * @return {*} The result of the callback.
- * @throws {Error} If lock cannot be acquired or callback throws.
- */
-function executeWithLock(callback, timeout = 10000) {
-  const lock = LockService.getScriptLock();
-  try {
-    if (lock.tryLock(timeout)) {
-      return callback();
-    } else {
-      throw new Error("Could not obtain lock after " + timeout + "ms.");
-    }
-  } finally {
-    lock.releaseLock();
-  }
 }
 
 function getUserProfile(userId) {

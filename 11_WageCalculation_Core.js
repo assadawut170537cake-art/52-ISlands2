@@ -10,7 +10,7 @@
 const WageCore = {
   calculateDailyWageWithAutomatedBonus: function(employeeData) {
     try {
-      const role = employeeData.role ? employeeData.role.toString().trim() : "";
+      const role = employeeData.role;
       const skillLevel = employeeData.skillLevel || "ทั่วไป";
       const age = parseInt(employeeData.age) || 0;
       const monthsWorked = parseInt(employeeData.monthsWorked) || 0;
