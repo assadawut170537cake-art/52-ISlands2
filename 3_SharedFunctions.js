@@ -163,28 +163,88 @@ function parseComplexMessage(text) {
 
 
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
-  if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
-  const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
-  const toF = (m) => { let h = Math.floor(m/60)%24; return (h<10?"0"+h:h)+"."+(m%60<10?"0"+m%60:m%60); };
-  const toHrs = (m) => parseFloat((m / 60).toFixed(2));
+  try {
+    if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
+    const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
+    const toF = (m) => { let h = Math.floor(m/60)%24; return (h<10?"0"+h:h)+"."+(m%60<10?"0"+m%60:m%60); };
+    const toHrs = (m) => parseFloat((m / 60).toFixed(2));
 
-  const s = toM(sT); let e = toM(eT); if(e===0) return 0;
-  if(e<s) e+=1440;
-  let otData = ["","","","","","",""]; let otT = 0; let normHr = "";
+    const s = toM(sT); let e = toM(eT); if(e===0) return 0;
+    if(e<s) e+=1440;
+    
+    // 1. คำนวณเวลาทำงานรวม และหักพักเที่ยง
+    let totalMins = e - s;
+    let breakStart = Math.max(s, 720);
+    let breakEnd = Math.min(e, 780);
+    let breakDuration = 0;
+    
+    if (breakStart < breakEnd) {
+        breakDuration = breakEnd - breakStart;
+        if (isN) {
+            let otNIn = toM(nI || "12.00");
+            let otNOut = toM(nO || "13.00");
+            let otNDuration = Math.max(0, otNOut - otNIn);
+            breakDuration = Math.max(0, breakDuration - otNDuration);
+        }
+    }
+    
+    let actualWorkMins = totalMins - breakDuration;
+    let normMins = 0;
+    let otMins = 0;
+    let otData = ["", "", "", "", "", "", ""];
 
-  if(s<480) { otData[0]=toF(s); otData[1]="08.00"; otT+=(480-s); }
-  const nIn = Math.max(s, 480); const nOut = Math.min(e, 1020);  
-  let nDur = Math.max(0, nOut - nIn);
-  if(nIn<=720 && nOut>=780) nDur-=60; 
-  if(nDur>0) normHr = toHrs(nDur); 
-  
-  if(isN) { otData[2]=nI || "12.00"; otData[3]=nO || "13.00"; otT+=(toM(otData[3])-toM(otData[2])); }
-  if(e>1020) { otData[4]="17.00"; otData[5]=toF(e); otT+=(e-1020); }
-  if(otT>0) otData[6]=toHrs(otT); 
+    // 2. จัดสรรเวลาตามกฎ 8 ชั่วโมง
+    if (actualWorkMins <= 480) {
+        normMins = actualWorkMins;
+        otMins = 0;
+    } else {
+        normMins = 480;
+        otMins = actualWorkMins - 480;
+        let remainingOt = otMins;
+        
+        // 2.1 ลงช่อง OT เที่ยงก่อน
+        if (isN && remainingOt > 0) {
+            let otNIn = toM(nI || "12.00");
+            let otNOut = toM(nO || "13.00");
+            let otNDuration = Math.max(0, otNOut - otNIn);
+            let assigned = Math.min(remainingOt, otNDuration);
+            if (assigned > 0) {
+                otData[2] = toF(otNIn);
+                otData[3] = toF(otNIn + assigned);
+                remainingOt -= assigned;
+            }
+        }
+        
+        // 2.2 ลงช่อง OT เช้า
+        if (s < 480 && remainingOt > 0) {
+            let morningOtDuration = Math.min(480 - s, remainingOt);
+            otData[0] = toF(s);
+            otData[1] = toF(s + morningOtDuration);
+            remainingOt -= morningOtDuration;
+        }
+        
+        // 2.3 ลงช่อง OT เย็น
+        if (remainingOt > 0) {
+            let otEIn = e - remainingOt;
+            otData[4] = toF(otEIn);
+            otData[5] = toF(e);
+            remainingOt -= remainingOt;
+        }
+    }
+    
+    if (otMins > 0) {
+        otData[6] = toHrs(otMins);
+    }
 
-  sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normHr || "");
-  sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
-  return toHrs(otT);
+    // 3. อัปเดตข้อมูลลงในชีต
+    sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).setValue(normMins > 0 ? toHrs(normMins) : "");
+    sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).setValues([otData]);
+    
+    return toHrs(otMins);
+  } catch (err) {
+    console.error("calculateAndTimeEntry error: " + err.message);
+    return 0;
+  }
 }
 
 // -----------------------------------------------------------------

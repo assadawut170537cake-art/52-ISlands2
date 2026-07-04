@@ -633,35 +633,51 @@ async function checkOTAndProceed(dataToProcess, userId, token, check, targetFile
     let hasOT = false;
     let otMins = 0;
 
-    // 1. ตรวจสอบโอทีช่วงเช้าและเย็น (ต้องมีการระบุเวลาเลิกงาน eMins > 0)
+    // 1. คำนวณจำนวนชั่วโมงทำงานรวมก่อน (หักพักเที่ยงถ้ามี)
     if (eMins > 0) {
       if (eMins < sMins) eMins += 24 * 60; // กรณีข้ามคืน
-      if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins); // เข้าก่อน 08.00
-      if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020)); // เลิกหลัง 17.00
-    }
-
-    // 2. ตรวจสอบโอทีช่วงเที่ยง (เป็นอิสระจากเวลาเลิกงานตอนเย็น)
-    let hasNoonOt = false;
-    let noonOtMins = 0;
-    
-    // ตรวจสอบที่ระดับโปรเจกต์รวม
-    if (dataToProcess.has_ot_noon) {
-      hasNoonOt = true;
-      noonOtMins = Math.max(noonOtMins, toMins(dataToProcess.ot_noon_out || "13.00") - toMins(dataToProcess.ot_noon_in || "12.00"));
-    }
-    
-    // ตรวจสอบที่ระดับพนักงานรายบุคคล
-    if (dataToProcess.employees && Array.isArray(dataToProcess.employees)) {
-      dataToProcess.employees.forEach(emp => {
-        if (emp.has_ot_noon) {
+      
+      let totalMins = eMins - sMins;
+      
+      // หักพักเที่ยง 1 ชั่วโมง
+      let breakStart = Math.max(sMins, 720);
+      let breakEnd = Math.min(eMins, 780);
+      let breakDuration = 0;
+      
+      if (breakStart < breakEnd) {
+        breakDuration = breakEnd - breakStart;
+        
+        // ตรวจสอบโอทีช่วงเที่ยง (ชดเชยเวลาพัก)
+        let hasNoonOt = false;
+        let noonOtMins = 0;
+        
+        if (dataToProcess.has_ot_noon) {
           hasNoonOt = true;
-          noonOtMins = Math.max(noonOtMins, toMins(emp.ot_noon_out || "13.00") - toMins(emp.ot_noon_in || "12.00"));
+          noonOtMins = Math.max(noonOtMins, toMins(dataToProcess.ot_noon_out || "13.00") - toMins(dataToProcess.ot_noon_in || "12.00"));
         }
-      });
+        
+        if (dataToProcess.employees && Array.isArray(dataToProcess.employees)) {
+          dataToProcess.employees.forEach(emp => {
+            if (emp.has_ot_noon) {
+              hasNoonOt = true;
+              noonOtMins = Math.max(noonOtMins, toMins(emp.ot_noon_out || "13.00") - toMins(emp.ot_noon_in || "12.00"));
+            }
+          });
+        }
+        
+        if (hasNoonOt) {
+          breakDuration = Math.max(0, breakDuration - noonOtMins);
+        }
+      }
+      
+      let actualWorkMins = totalMins - breakDuration;
+      
+      // 2. ตรวจสอบว่าทำงานเกิน 8 ชั่วโมงหรือไม่
+      if (actualWorkMins > 480) {
+        otMins = actualWorkMins - 480;
+        hasOT = true;
+      }
     }
-
-    if (hasNoonOt) otMins += noonOtMins;
-    if (otMins > 0) hasOT = true;
 
     // 3. ดำเนินการต่อตามสถานะ OT
     if (hasOT) {

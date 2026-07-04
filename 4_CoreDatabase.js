@@ -108,45 +108,91 @@ function writeToDailySheetBatch(data, userId, fileId) {
  * คำนวณเวลาทำงานปกติและ OT ตามมาตรฐาน CORE_DB
  */
 function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
-  if (!eT || eT.toString().trim() === "") {
-    block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = "";
-    for (let c = 0; c < 7; c++) block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + c] = "";
+  try {
+    if (!eT || eT.toString().trim() === "") {
+      block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = "";
+      for (let c = 0; c < 7; c++) block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + c] = "";
+      return 0;
+    }
+    
+    const toM = (t) => { const p = t.toString().replace('.', ':').split(':'); return (parseInt(p[0]) || 0) * 60 + (parseInt(p[1]) || 0); };
+    const toF = (m) => { let h = Math.floor(m / 60) % 24; return (h < 10 ? "0" + h : h) + "." + (m % 60 < 10 ? "0" + m % 60 : m % 60); };
+    const toHrs = (m) => parseFloat((m / 60).toFixed(2));
+
+    const s = toM(sT); let e = toM(eT);
+    if (e === 0) return 0;
+    if (e < s) e += 1440; 
+    
+    // 1. คำนวณเวลาทำงานรวม และหักพักเที่ยง
+    let totalMins = e - s;
+    let breakStart = Math.max(s, 720);
+    let breakEnd = Math.min(e, 780);
+    let breakDuration = 0;
+    
+    if (breakStart < breakEnd) {
+        breakDuration = breakEnd - breakStart;
+        if (isN) {
+            let otNIn = toM(nI || "12.00");
+            let otNOut = toM(nO || "13.00");
+            let otNDuration = Math.max(0, otNOut - otNIn);
+            breakDuration = Math.max(0, breakDuration - otNDuration);
+        }
+    }
+    
+    let actualWorkMins = totalMins - breakDuration;
+    let normMins = 0;
+    let otMins = 0;
+    let otData = ["", "", "", "", "", "", ""];
+
+    // 2. จัดสรรเวลาตามกฎ 8 ชั่วโมง (ห้ามนำเวลาหลัง 17.00 มาปัดเป็น OT ถ้ารวมไม่ถึง 8 ชม.)
+    if (actualWorkMins <= 480) {
+        normMins = actualWorkMins;
+        otMins = 0;
+    } else {
+        normMins = 480;
+        otMins = actualWorkMins - 480;
+        let remainingOt = otMins;
+        
+        // 2.1 ลงช่อง OT เที่ยงก่อน (ถ้ามีการระบุ)
+        if (isN && remainingOt > 0) {
+            let otNIn = toM(nI || "12.00");
+            let otNOut = toM(nO || "13.00");
+            let otNDuration = Math.max(0, otNOut - otNIn);
+            let assigned = Math.min(remainingOt, otNDuration);
+            if (assigned > 0) {
+                otData[2] = toF(otNIn);
+                otData[3] = toF(otNIn + assigned);
+                remainingOt -= assigned;
+            }
+        }
+        
+        // 2.2 ลงช่อง OT เช้า (ถ้ายอดเริ่มงานก่อน 08.00 น.)
+        if (s < 480 && remainingOt > 0) {
+            let morningOtDuration = Math.min(480 - s, remainingOt);
+            otData[0] = toF(s);
+            otData[1] = toF(s + morningOtDuration);
+            remainingOt -= morningOtDuration;
+        }
+        
+        // 2.3 ถ้ายังมี OT เหลือ ให้ไปลงช่อง OT เย็น
+        if (remainingOt > 0) {
+            let otEIn = e - remainingOt;
+            otData[4] = toF(otEIn);
+            otData[5] = toF(e);
+            remainingOt -= remainingOt;
+        }
+    }
+
+    // 3. อัปเดตข้อมูลลงใน block
+    block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = normMins > 0 ? toHrs(normMins) : "";
+    for (let i = 0; i < 6; i++) {
+        block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + i] = otData[i];
+    }
+    block[rowIndex][CORE_DB.COL_OT_TOTAL - 1] = otMins > 0 ? toHrs(otMins) : "";
+    
+    return toHrs(otMins);
+  } catch (err) {
+    console.error("calculateAndTimeEntryFromValues error: " + err.message);
     return 0;
   }
-  
-  const toM = (t) => { const p = t.toString().replace('.', ':').split(':'); return (parseInt(p[0]) || 0) * 60 + (parseInt(p[1]) || 0); };
-  const toF = (m) => { let h = Math.floor(m / 60) % 24; return (h < 10 ? "0" + h : h) + "." + (m % 60 < 10 ? "0" + m % 60 : m % 60); };
-  const toHrs = (m) => parseFloat((m / 60).toFixed(2));
-
-  const s = toM(sT); let e = toM(eT);
-  if (e === 0) return 0;
-  if (e < s) e += 1440; 
-
-  let otData = ["", "", "", "", "", "", ""];
-  let otT = 0; let normHr = "";
-
-  // คำนวณเวลาตามช่วง
-  if (s < 480) { otData[0] = toF(s); otData[1] = "08.00"; otT += (480 - s); }
-  const nIn = Math.max(s, 480); const nOut = Math.min(e, 1020);
-  let nDur = Math.max(0, nOut - nIn);
-  if (nIn <= 720 && nOut >= 780) nDur -= 60; // หักพักเที่ยง
-
-  if (isN) { otData[2] = nI || "12.00"; otData[3] = nO || "13.00"; otT += (toM(otData[3]) - toM(otData[2])); }
-  if (e > 1020) { otData[4] = "17.00"; otData[5] = toF(e); otT += (e - 1020); }
-
-  // เติม OT ลงในเวลาทำงานปกติที่ขาด (ถ้ามี)
-  let gap = 480 - nDur;
-  if (gap > 0 && otT > 0) {
-      let fill = Math.min(gap, otT);
-      nDur += fill; otT -= fill;
-  }
-  
-  if (nDur > 0) normHr = toHrs(nDur);
-  if (otT > 0) otData[6] = toHrs(otT);
-
-  // อัปเดตข้อมูลลงใน block
-  block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = normHr || "";
-  for (let i = 0; i < 7; i++) block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + i] = otData[i];
-  
-  return toHrs(otT);
 }
