@@ -18,3 +18,6 @@
 
 ## รอบการตรวจสอบ: 3/7/2569 17:07:51
 - [ ] 1_bot line.js, Config.js, PROJECT_STRUCTURE.md
+
+## รอบการตรวจสอบ: 4/7/2569 11:33:26
+- [ ] 1_bot line.js, 4_CoreDatabase.js, 3_SharedFunctions.js, PROJECT_STRUCTURE.md, changelog_ot_8hours_and_menu_fix.md

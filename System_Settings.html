@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Settings - Smart Worksite</title>
+  <!-- Materialize CSS for modern UI -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <style>
+    body {
+      background-color: #f4f7f6;
+      font-family: 'Sarabun', sans-serif;
+    }
+    .settings-container {
+      margin-top: 40px;
+      padding: 30px;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(10px);
+    }
+    h4 {
+      color: #2c3e50;
+      font-weight: 600;
+      margin-bottom: 30px;
+    }
+    .input-field input:focus + label {
+      color: #26a69a !important;
+    }
+    .input-field input:focus {
+      border-bottom: 1px solid #26a69a !important;
+      box-shadow: 0 1px 0 0 #26a69a !important;
+    }
+    .btn-save {
+      width: 100%;
+      border-radius: 25px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <div class="row">
+      <div class="col s12 m8 offset-m2 settings-container">
+        <h4 class="center-align"><i class="material-icons prefix">settings</i> System Settings</h4>
+        
+        <form id="settingsForm">
+          <!-- Current Web App URL -->
+          <div class="input-field col s12">
+            <i class="material-icons prefix">link</i>
+            <input id="currentWebAppUrl" type="url" required>
+            <label for="currentWebAppUrl">Current Web App URL</label>
+            <span class="helper-text">URL ของ Web App ล่าสุดหลังจาก Deploy</span>
+          </div>
+
+          <!-- System Status -->
+          <div class="input-field col s12">
+            <i class="material-icons prefix">power_settings_new</i>
+            <select id="systemStatus">
+              <option value="ON">ON (เปิดระบบ)</option>
+              <option value="OFF">OFF (ปิดระบบซ่อมบำรุง)</option>
+            </select>
+            <label>สถานะระบบ (System Status)</label>
+          </div>
+
+          <!-- Backdate Limit -->
+          <div class="input-field col s12">
+            <i class="material-icons prefix">history</i>
+            <input id="backdateLimit" type="number" min="0" value="2" required>
+            <label for="backdateLimit">ลิมิตการลงเวลาย้อนหลัง (วัน)</label>
+          </div>
+
+          <!-- Admin Line IDs -->
+          <div class="input-field col s12">
+            <i class="material-icons prefix">admin_panel_settings</i>
+            <input id="adminLineIds" type="text" placeholder="U1234567890abcdef1234567890abcdef">
+            <label for="adminLineIds">Admin LINE IDs (คั่นด้วยลูกน้ำ)</label>
+          </div>
+
+          <div class="col s12 center-align" style="margin-top: 20px;">
+            <button class="btn waves-effect waves-light btn-large btn-save teal" type="submit" name="action">
+              <i class="material-icons left">save</i> บันทึกการตั้งค่า
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var elems = document.querySelectorAll('select');
+      M.FormSelect.init(elems);
+      
+      // Load current settings (mocked for frontend structure, actual values should be injected via script.run)
+      google.script.run.withSuccessHandler(function(config) {
+        if(config.WEB_APP_URL) document.getElementById('currentWebAppUrl').value = config.WEB_APP_URL;
+        if(config.SYSTEM_STATUS) {
+            var select = document.getElementById('systemStatus');
+            select.value = config.SYSTEM_STATUS;
+            M.FormSelect.init(select);
+        }
+        if(config.BACKDATE_LIMIT) document.getElementById('backdateLimit').value = config.BACKDATE_LIMIT;
+        if(config.ADMIN_LINE_IDS) document.getElementById('adminLineIds').value = config.ADMIN_LINE_IDS;
+        
+        M.updateTextFields();
+      }).getSystemSettings();
+    });
+
+    document.getElementById('settingsForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const btn = document.querySelector('.btn-save');
+      btn.innerHTML = '<i class="material-icons left">autorenew</i> กำลังบันทึก...';
+      btn.classList.add('disabled');
+
+      const config = {
+        WEB_APP_URL: document.getElementById('currentWebAppUrl').value,
+        SYSTEM_STATUS: document.getElementById('systemStatus').value,
+        BACKDATE_LIMIT: document.getElementById('backdateLimit').value,
+        ADMIN_LINE_IDS: document.getElementById('adminLineIds').value
+      };
+
+      google.script.run.withSuccessHandler(function(response) {
+        M.toast({html: '✅ บันทึกการตั้งค่าสำเร็จ!', classes: 'green rounded'});
+        btn.innerHTML = '<i class="material-icons left">save</i> บันทึกการตั้งค่า';
+        btn.classList.remove('disabled');
+      }).withFailureHandler(function(error) {
+        M.toast({html: '❌ เกิดข้อผิดพลาด: ' + error, classes: 'red rounded'});
+        btn.innerHTML = '<i class="material-icons left">save</i> บันทึกการตั้งค่า';
+        btn.classList.remove('disabled');
+      }).saveSystemSettingsBatch(config);
+    });
+  </script>
+</body>
+</html>

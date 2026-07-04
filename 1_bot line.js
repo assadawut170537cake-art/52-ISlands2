@@ -187,8 +187,8 @@ function handleLineWebhook(requestData, e) {
         let imageBlob = null;
         
         if (event.type === "postback") {
-           actionData = event.postback.data.trim();
-           isTextMsg = true;
+           actionData = (event.postback && event.postback.data) ? event.postback.data.trim() : "";
+           isTextMsg = (actionData !== "");
         } else if (event.message && event.message.type === "text") {
            actionData = event.message.text.trim();
            isTextMsg = true;

@@ -27,6 +27,13 @@ function doGet(e) {
           .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
           .addMetaTag('viewport', 'width=device-width, initial-scale=1');
     }
+    
+    if (page === 'settings') {
+      return HtmlService.createHtmlOutputFromFile('System_Settings')
+          .setTitle('System Settings - Smart Worksite')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+          .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    }
 
     const userEmail = Session.getActiveUser().getEmail();
     const adminEmails = getAdminEmailsFromSheet();

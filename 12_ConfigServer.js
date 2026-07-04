@@ -162,3 +162,51 @@ function saveBusinessSettings(payload) {
     lock.releaseLock();
   }
 }
+
+/**
+ * @description ดึงข้อมูลการตั้งค่าสำหรับหน้า System Settings
+ * @returns {Object} ข้อมูลการตั้งค่า
+ */
+function getSystemSettings() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    return {
+      WEB_APP_URL: props.getProperty('WEB_APP_URL') || "",
+      SYSTEM_STATUS: (typeof getDynamicConfig === 'function' ? getDynamicConfig('SYSTEM_STATUS') : (props.getProperty('SYSTEM_STATUS') || "ON")),
+      BACKDATE_LIMIT: (typeof getDynamicConfig === 'function' ? getDynamicConfig('BACKDATE_LIMIT') : (props.getProperty('BACKDATE_LIMIT') || "2")),
+      ADMIN_LINE_IDS: (typeof getDynamicConfig === 'function' ? getDynamicConfig('ADMIN_LINE_IDS') : (props.getProperty('ADMIN_LINE_IDS') || ""))
+    };
+  } catch (error) {
+    console.error("Error in getSystemSettings:", error.message);
+    return {};
+  }
+}
+
+/**
+ * @description บันทึกข้อมูล System Settings แบบ Batch
+ * @param {Object} config ข้อมูลการตั้งค่า
+ * @returns {boolean} สถานะความสำเร็จ
+ */
+function saveSystemSettingsBatch(config) {
+  try {
+    if (!config) throw new Error("ไม่มีข้อมูลให้บันทึก");
+    const props = PropertiesService.getScriptProperties();
+    
+    if (config.WEB_APP_URL !== undefined) props.setProperty('WEB_APP_URL', config.WEB_APP_URL);
+    
+    if (typeof setDynamicConfig === 'function') {
+      if (config.SYSTEM_STATUS !== undefined) setDynamicConfig('SYSTEM_STATUS', config.SYSTEM_STATUS);
+      if (config.BACKDATE_LIMIT !== undefined) setDynamicConfig('BACKDATE_LIMIT', config.BACKDATE_LIMIT);
+      if (config.ADMIN_LINE_IDS !== undefined) setDynamicConfig('ADMIN_LINE_IDS', config.ADMIN_LINE_IDS);
+    } else {
+      if (config.SYSTEM_STATUS !== undefined) props.setProperty('SYSTEM_STATUS', config.SYSTEM_STATUS);
+      if (config.BACKDATE_LIMIT !== undefined) props.setProperty('BACKDATE_LIMIT', config.BACKDATE_LIMIT);
+      if (config.ADMIN_LINE_IDS !== undefined) props.setProperty('ADMIN_LINE_IDS', config.ADMIN_LINE_IDS);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Error in saveSystemSettingsBatch:", error.message);
+    throw new Error(error.message);
+  }
+}
