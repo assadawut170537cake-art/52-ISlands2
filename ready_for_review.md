@@ -24,3 +24,6 @@
 
 ## รอบการตรวจสอบ: 4/7/2569 13:56:19
 - [ ] crosscheck.js, 1_bot line.js, System_Settings.html, 12_ConfigServer.js, WebApp_GeminiTools.js, changelog_config_ui_and_bugfixes.md, PROJECT_STRUCTURE.md
+
+## รอบการตรวจสอบ: 5/7/2569 09:59:29
+- [ ] 3_SharedFunctions.js, 10_DevOps_Core.js, PROJECT_STRUCTURE.md
