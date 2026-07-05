@@ -41,6 +41,7 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu("🚀 Smart Worksite DevOps")
     .addItem("⚙️ ตั้งค่าระบบ (Settings)", "openSettingsSidebar")
+    .addItem("🏛️ สร้างหน้าหลัก (Main Menu Dashboard)", "createDashboardMenu")
     .addItem("⚙️ ตั้งค่าโครงสร้างระบบใหม่ (Initialize)", "initializeDevopsWorkspace")
     .addItem("🔄 ⚡ ซิงค์รหัสจาก GAS อัตโนมัติ (Auto API Sync)", "syncDirectFromGAS")
     .addItem("👁️ ยุบ-กางเนื้อโค้ด (Toggle Outline View)", "toggleCodeVisibility")

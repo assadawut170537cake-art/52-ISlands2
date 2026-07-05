@@ -21,3 +21,6 @@
 
 ## รอบการตรวจสอบ: 4/7/2569 11:33:26
 - [ ] 1_bot line.js, 4_CoreDatabase.js, 3_SharedFunctions.js, PROJECT_STRUCTURE.md, changelog_ot_8hours_and_menu_fix.md
+
+## รอบการตรวจสอบ: 4/7/2569 13:56:19
+- [ ] crosscheck.js, 1_bot line.js, System_Settings.html, 12_ConfigServer.js, WebApp_GeminiTools.js, changelog_config_ui_and_bugfixes.md, PROJECT_STRUCTURE.md

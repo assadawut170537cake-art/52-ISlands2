@@ -513,11 +513,17 @@ function createDashboardMenu() {
     unprotectedRanges.push(checkCell);
   }
   
+  const MONTH_LIST = GLOBAL_CONFIG.MONTH_LIST || ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+  const ICONS = GLOBAL_CONFIG.ICONS || {
+    SYSTEM: { SUMMARY: "📊", DATA: "🗄️", GUIDE: "📖", FEEDBACK: "💬" },
+    MONTHS: ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟", "1️⃣1️⃣", "1️⃣2️⃣"]
+  };
+
   sheet.getRange("B7:I7").merge().setValue("⚙️ ส่วนจัดการระบบ (System)").setFontWeight("bold").setFontColor(COLORS.GRAY_TEXT).setFontSize(11);
-  createPillButton(9, 2, 3, GLOBAL_CONFIG.ICONS.SYSTEM.SUMMARY, "สรุปภาพรวมปี"); 
-  createPillButton(9, 5, 6, GLOBAL_CONFIG.ICONS.SYSTEM.DATA, "ฐานข้อมูล (Admin)");
-  createPillButton(11, 2, 3, GLOBAL_CONFIG.ICONS.SYSTEM.GUIDE, "คู่มือการใช้งาน"); 
-  createPillButton(11, 5, 6, GLOBAL_CONFIG.ICONS.SYSTEM.FEEDBACK, "แจ้งปัญหา");
+  createPillButton(9, 2, 3, ICONS.SYSTEM.SUMMARY, "สรุปภาพรวมปี"); 
+  createPillButton(9, 5, 6, ICONS.SYSTEM.DATA, "ฐานข้อมูล (Admin)");
+  createPillButton(11, 2, 3, ICONS.SYSTEM.GUIDE, "คู่มือการใช้งาน"); 
+  createPillButton(11, 5, 6, ICONS.SYSTEM.FEEDBACK, "แจ้งปัญหา");
   
   sheet.getRange("B13:I13").merge().setValue("📅 คลังข้อมูลรายเดือน (Monthly Vault)").setFontWeight("bold").setFontColor("#64748B").setFontSize(11);
   
@@ -528,7 +534,7 @@ function createDashboardMenu() {
     for (let c = 0; c < 3; c++) {
       if (mIndex >= 12) break;
       const isCurrent = (mIndex === currentMonthIndex);
-      createPillButton(monthRows[r], 2+(c*3), 3+(c*3), GLOBAL_CONFIG.ICONS.MONTHS[mIndex], `${GLOBAL_CONFIG.MONTH_LIST[mIndex]} ${isCurrent?"(ปัจจุบัน)":""}`, isCurrent);
+      createPillButton(monthRows[r], 2+(c*3), 3+(c*3), ICONS.MONTHS[mIndex], `${MONTH_LIST[mIndex]} ${isCurrent?"(ปัจจุบัน)":""}`, isCurrent);
       mIndex++;
     }
   }
@@ -563,29 +569,35 @@ function onEdit(e) {
     
     // กลุ่มเมนูหลักแถวที่ 9 และ 11
     if (row === 9) {
-      targetUrl = (col === 2) ? GLOBAL_CONFIG.URLS.SUMMARY : (col === 5 ? GLOBAL_CONFIG.URLS.DATA : "");
+      targetUrl = (col === 2) ? "Summary" : (col === 5 ? "Data" : "");
     } else if (row === 11) {
-      targetUrl = (col === 2) ? GLOBAL_CONFIG.URLS.GUIDE : (col === 5 ? GLOBAL_CONFIG.URLS.FEEDBACK : "");
+      targetUrl = (col === 2) ? "Guide" : (col === 5 ? "Feedback" : "");
     }
     // กลุ่มปุ่มกดเลือกคลังข้อมูลรายเดือน (แถว 15, 17, 19, 21)
     else if (row >= 15 && row <= 21 && row % 2 !== 0) {
       if (col === 2 || col === 5 || col === 8) {
         var subIndex = (col === 2) ? 0 : (col === 5 ? 1 : 2);
         var monthIndex = (Math.floor((row - 15) / 2) * 3) + subIndex;
-        // ป้องกันดัชนีเกินขอบเขตอาร์เรย์เดือน
-        if (typeof GLOBAL_CONFIG !== "undefined" && GLOBAL_CONFIG.URLS && GLOBAL_CONFIG.URLS.MONTHS && monthIndex < GLOBAL_CONFIG.URLS.MONTHS.length) {
-          targetUrl = GLOBAL_CONFIG.URLS.MONTHS[monthIndex];
+        var MONTH_LIST = GLOBAL_CONFIG.MONTH_LIST || ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        if (monthIndex < MONTH_LIST.length) {
+          targetUrl = MONTH_LIST[monthIndex];
         }
       }
     }
     
-    // หากพบ URL ปลายทาง ให้ดำเนินการเปิดลิงก์และล้างสถานะปุ่มกดทันที
+    // หากพบเป้าหมาย (ชื่อหน้า Sheet) ให้สลับไปยังหน้านั้นทันที
     if (targetUrl) {
-      SpreadsheetApp.getActiveSpreadsheet().toast("⏳ กำลังเปิดเอกสาร กรุณารอสักครู่...", "🚀 ระบบทำงาน", 3);
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var targetSheet = ss.getSheetByName(targetUrl);
+      
       range.uncheck(); 
       sheet.getRange("A1").activate(); 
-      if (typeof openLinkInNewTab === "function") {
-        openLinkInNewTab(targetUrl);
+      
+      if (targetSheet) {
+        ss.toast("⏳ กำลังสลับหน้า กรุณารอสักครู่...", "🚀 ระบบทำงาน", 3);
+        targetSheet.activate();
+      } else {
+        ss.toast("❌ ไม่พบหน้า: " + targetUrl + " กรุณาสร้างหน้านี้ก่อน", "ข้อผิดพลาด", 4);
       }
       return; 
     }
