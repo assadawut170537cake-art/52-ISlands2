@@ -780,7 +780,7 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
   }
 }
 
-async function handleImageProcess(mId, tk, uId) {
+function handleImageProcess(mId, tk, uId) {
   try {
     const blob = UrlFetchApp.fetch(`https://api-data.line.me/v2/bot/message/${mId}/content`, {
       headers: { Authorization: "Bearer " + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') }
@@ -789,7 +789,7 @@ async function handleImageProcess(mId, tk, uId) {
     const prompt = `SYSTEM: You are a strict Image verifier. Is this image a timesheet (bille/slip) or a human face?
 Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52011", ...], "reason": "string" }`;
 
-    let aiRes = await callGeminiVision(Utilities.base64Encode(blob.getBytes()), prompt, "image/jpeg");
+    let aiRes = callGeminiVision(Utilities.base64Encode(blob.getBytes()), prompt, "image/jpeg");
     if (!aiRes) return;
     
     if (aiRes.is_target === false || aiRes.confidence < 80) {
@@ -820,7 +820,7 @@ Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52
   }
 }
 
-async function handleUndoLastAction(userId, token) {
+function handleUndoLastAction(userId, token) {
   const cache = CacheService.getScriptCache();
   const lastJson = cache.get(`LAST_ENTRY_${userId}`);
   if (!lastJson) {
@@ -836,7 +836,7 @@ async function handleUndoLastAction(userId, token) {
   }
 }
 
-async function handleUndoFromText(text, token) {
+function handleUndoFromText(text, token) {
   const dataToUndo = parseComplexMessage(text);
   if (!dataToUndo || !dataToUndo.date) {
     reply(token, "❌ ไม่พบวันที่");
@@ -849,12 +849,12 @@ async function handleUndoFromText(text, token) {
   }
 }
 
-async function handleCheckReport(content, userId, replyToken) {
+function handleCheckReport(content, userId, replyToken) {
   reply(replyToken, "ฟังก์ชันเช็ครายงานอยู่ระหว่างอัปเกรดฐานข้อมูลครับ");
 }
 
-async function handleCommands(msg, token, userId) {
-  const raw = await callGemini(msg, `Analyze intent: LEAVE, BROADCAST, HELP, SYSTEM_STATUS. JSON {intent, data}`, true);
+function handleCommands(msg, token, userId) {
+  const raw = callGemini(msg, `Analyze intent: LEAVE, BROADCAST, HELP, SYSTEM_STATUS. JSON {intent, data}`, true);
   if (!raw) return;
 
   switch (raw.intent) {
