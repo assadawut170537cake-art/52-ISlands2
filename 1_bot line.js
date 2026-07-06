@@ -625,7 +625,7 @@ function handleClockIn(msg, userId, token) {
  * @param {boolean} check - สถานะการตรวจสอบ
  * @param {string} targetFileId - ไอดีของไฟล์ Google Sheets เป้าหมาย
  */
-async function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
+function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
   try {
     const toMins = (t) => { if (!t) return 0; const parts = t.toString().replace('.', ':').split(':'); return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0); };
     const sMins = toMins(dataToProcess.time_start);
@@ -689,7 +689,7 @@ async function checkOTAndProceed(dataToProcess, userId, token, check, targetFile
         {label: "ยกเลิกลงเวลา", data: `#ยกเลิกลงเวลา|${dataToProcess.date}`}
       ]);
     } else {
-      await finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
+      finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
     }
   } catch (err) {
     if (typeof logError === "function") logError("checkOTAndProceed_error", err.toString(), JSON.stringify(dataToProcess));
@@ -697,19 +697,19 @@ async function checkOTAndProceed(dataToProcess, userId, token, check, targetFile
   }
 }
 
-async function processPendingClockIn(answer, pendingDataStr, userId, token) {
+function processPendingClockIn(answer, pendingDataStr, userId, token) {
   try {
     let dataToProcess = JSON.parse(pendingDataStr);
     if (answer === "ลงเวลา 13.00 น.") dataToProcess.time_start = "13.00";
     CacheService.getScriptCache().remove(`PENDING_CLOCKIN_${userId}`);
-    await checkOTAndProceed(dataToProcess, userId, token, dataToProcess.checkStatus, null);
+    checkOTAndProceed(dataToProcess, userId, token, dataToProcess.checkStatus, null);
   } catch (e) {
     CacheService.getScriptCache().remove(`PENDING_CLOCKIN_${userId}`);
     reply(token, "❌ ข้อมูลหมดอายุครับ");
   }
 }
 
-async function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
+function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
   const isTesting = typeof getDynamicConfig === "function" ? getDynamicConfig("IS_TESTING") === "TRUE" : false;
   if (!targetId) targetId = getTargetFileIdByDate(data.date);
   if (!targetId) { reply(token, "❌ ไม่พบไฟล์สำหรับเดือนนี้"); return; }

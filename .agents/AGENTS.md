@@ -1,1 +1,2 @@
 > **Auto-Update Document:** Whenever you modify or add features to the project codebase, you MUST review and update the `PROJECT_STRUCTURE.md` file to ensure it accurately reflects the current structure, functions, and logic of the project.
+> **GAS Synchronous Execution:** Google Apps Script natively supports synchronous APIs. Do NOT use `async/await` to wrap GAS APIs (like `SpreadsheetApp`, `CacheService`) or top-level handlers like `doPost(e)`, as this can lead to premature termination before the Promises resolve.
