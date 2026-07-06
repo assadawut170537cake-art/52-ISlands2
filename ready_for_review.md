@@ -41,3 +41,6 @@
 
 - [ ] changelog_project_isolation.md, PROJECT_STRUCTURE.md, .agents/AGENTS.md
 
+
+## รอบการตรวจสอบ: 6/7/2569 11:56:36
+- [ ] 3_SharedFunctions.js, 7_AI_Core.js, PROJECT_STRUCTURE.md, changelog_restore_ai_fallback.md
