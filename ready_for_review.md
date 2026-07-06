@@ -27,3 +27,6 @@
 
 ## รอบการตรวจสอบ: 5/7/2569 09:59:29
 - [ ] 3_SharedFunctions.js, 10_DevOps_Core.js, PROJECT_STRUCTURE.md
+
+## รอบการตรวจสอบ: 6/7/2569 10:59:29
+- [ ] changelog_project_isolation.md, PROJECT_STRUCTURE.md, .agents/AGENTS.md
