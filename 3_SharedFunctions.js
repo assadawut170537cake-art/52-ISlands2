@@ -370,6 +370,28 @@ function fixAllOTInSheet() {
 // ใช้ isAdmin(userId) จาก Config.gs เป็นแหล่งเดียวแทน (Single Source of Truth)
 
 /**
+ * @description ดึง Target File ID ของชีตรายเดือนตามวันที่
+ * @param {string} dateStr - วันที่ (สามารถรับ null ได้)
+ * @returns {string} - ID ของไฟล์
+ */
+function getTargetFileIdByDate(dateStr) {
+  let mIndex = new Date().getMonth(); 
+  if (dateStr) { 
+    const p = String(dateStr).replace("#", "").trim().split(/[\/\-.]/); 
+    if (p.length >= 2) { 
+      let m = parseInt(p[1], 10) - 1; 
+      if (m >= 0 && m <= 11) mIndex = m; 
+    } 
+  }
+  
+  if (typeof MONTHLY_FILE_IDS !== 'undefined' && MONTHLY_FILE_IDS[mIndex]) {
+    return MONTHLY_FILE_IDS[mIndex];
+  }
+  
+  return getDynamicConfig("EXTERNAL_DATABASE_ID");
+}
+
+/**
  * @description แปลงวันที่แบบตัวเลขเป็นภาษาไทย (บังคับปีปัจจุบันเสมอ)
  * @param {string} s - วันที่ในรูปแบบ dd/MM/yyyy
  * @returns {string} - วันที่ในรูปแบบ "dd เดือน yyyy" (ปี พ.ศ.)
