@@ -318,23 +318,28 @@ function handleCheckAbsent(date) {
 }
 
 function undoLastEntry(name, dateStr) {
-  const targetFileId = getTargetFileIdByDate(dateStr); 
-  if (!targetFileId) return "❌ ไม่พบไฟล์ของเดือนนี้";
-  const ss = SpreadsheetApp.openById(targetFileId); 
-  const sheetName = parseThaiDate(dateStr); 
-  const s = ss.getSheetByName(sheetName); 
-  if (!s) return "❌ ไม่พบหน้าวันที่ " + sheetName;
-  
-  const cleanName = normalize(name); 
-  const data = s.getRange(GLOBAL_CONFIG.START_ROW, GLOBAL_CONFIG.COL_NAME_CHECK, s.getLastRow(), 2).getValues();
-  
-  for (let i = 0; i < data.length; i++) { 
-    if (normalize(data[i][0] + (data[i][1]||"")).includes(cleanName)) { 
-      s.getRange(i + GLOBAL_CONFIG.START_ROW, 6, 1, 12).clearContent(); 
-      return `🗑️ ล้างข้อมูล ${name} วันที่ ${sheetName} เรียบร้อย`; 
-    } 
+  try {
+    const targetFileId = getTargetFileIdByDate(dateStr); 
+    if (!targetFileId) return "❌ ไม่พบไฟล์ของเดือนนี้";
+    const ss = SpreadsheetApp.openById(targetFileId); 
+    const sheetName = parseThaiDate(dateStr); 
+    const s = ss.getSheetByName(sheetName); 
+    if (!s) return "❌ ไม่พบหน้าวันที่ " + sheetName;
+    
+    const cleanName = normalize(name); 
+    const data = s.getRange(GLOBAL_CONFIG.START_ROW, GLOBAL_CONFIG.COL_NAME_CHECK, s.getLastRow(), 2).getValues();
+    
+    for (let i = 0; i < data.length; i++) { 
+      if (normalize(data[i][0] + (data[i][1]||"")).includes(cleanName)) { 
+        s.getRange(i + GLOBAL_CONFIG.START_ROW, 6, 1, 12).clearContent(); 
+        return `🗑️ ล้างข้อมูล ${name} วันที่ ${sheetName} เรียบร้อย`; 
+      } 
+    }
+    return `⚠️ ไม่พบชื่อ ${name} ในวันที่ ${sheetName}`;
+  } catch (err) {
+    console.error("undoLastEntry error: " + err.message);
+    return "❌ เกิดข้อผิดพลาดในระบบ: " + err.message;
   }
-  return `⚠️ ไม่พบชื่อ ${name} ในวันที่ ${sheetName}`;
 }
 
 function calculateMorningOT(entryTime) { 
@@ -569,83 +574,87 @@ function createDashboardMenu() {
   sheet.getRange("A1").activate();
 }
 function onEdit(e) {
-  // 1. Guard Clauses: ตรวจสอบความสมบูรณ์ของ Event Object ป้องกัน Race Condition และ Null Pointer
-  if (!e || !e.range) return;
-  var range = e.range;
-  var sheet = range.getSheet();
-  var sheetName = sheet.getName();
-  var row = range.getRow();
-  var col = range.getColumn();
-  
-  // ดึงค่าอย่างปลอดภัย รองรับทั้งการพิมพ์ปกติและการติ๊ก Checkbox
-  var value = e.value;
-  if (value === undefined) {
-    value = range.getValue();
-  }
-
-  // ==========================================
-  // 🎯 ตรรกะส่วนที่ 1: Main Menu Navigator
-  // ==========================================
-  if (sheetName === "Main Menu" && (value === "TRUE" || value === true)) {
-    var targetUrl = "";
+  try {
+    // 1. Guard Clauses: ตรวจสอบความสมบูรณ์ของ Event Object ป้องกัน Race Condition และ Null Pointer
+    if (!e || !e.range) return;
+    var range = e.range;
+    var sheet = range.getSheet();
+    var sheetName = sheet.getName();
+    var row = range.getRow();
+    var col = range.getColumn();
     
-    // กลุ่มเมนูหลักแถวที่ 9 และ 11
-    if (row === 9) {
-      targetUrl = (col === 2) ? "Summary" : (col === 5 ? "Data" : "");
-    } else if (row === 11) {
-      targetUrl = (col === 2) ? "Guide" : (col === 5 ? "Feedback" : "");
+    // ดึงค่าอย่างปลอดภัย รองรับทั้งการพิมพ์ปกติและการติ๊ก Checkbox
+    var value = e.value;
+    if (value === undefined) {
+      value = range.getValue();
     }
-    // กลุ่มปุ่มกดเลือกคลังข้อมูลรายเดือน (แถว 15, 17, 19, 21)
-    else if (row >= 15 && row <= 21 && row % 2 !== 0) {
-      if (col === 2 || col === 5 || col === 8) {
-        var subIndex = (col === 2) ? 0 : (col === 5 ? 1 : 2);
-        var monthIndex = (Math.floor((row - 15) / 2) * 3) + subIndex;
-        var MONTH_LIST = GLOBAL_CONFIG.MONTH_LIST || ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-        if (monthIndex < MONTH_LIST.length) {
-          targetUrl = MONTH_LIST[monthIndex];
+
+    // ==========================================
+    // 🎯 ตรรกะส่วนที่ 1: Main Menu Navigator
+    // ==========================================
+    if (sheetName === "Main Menu" && (value === "TRUE" || value === true)) {
+      var targetUrl = "";
+      
+      // กลุ่มเมนูหลักแถวที่ 9 และ 11
+      if (row === 9) {
+        targetUrl = (col === 2) ? "Summary" : (col === 5 ? "Data" : "");
+      } else if (row === 11) {
+        targetUrl = (col === 2) ? "Guide" : (col === 5 ? "Feedback" : "");
+      }
+      // กลุ่มปุ่มกดเลือกคลังข้อมูลรายเดือน (แถว 15, 17, 19, 21)
+      else if (row >= 15 && row <= 21 && row % 2 !== 0) {
+        if (col === 2 || col === 5 || col === 8) {
+          var subIndex = (col === 2) ? 0 : (col === 5 ? 1 : 2);
+          var monthIndex = (Math.floor((row - 15) / 2) * 3) + subIndex;
+          var MONTH_LIST = GLOBAL_CONFIG.MONTH_LIST || ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+          if (monthIndex < MONTH_LIST.length) {
+            targetUrl = MONTH_LIST[monthIndex];
+          }
         }
       }
-    }
-    
-    // หากพบเป้าหมาย (ชื่อหน้า Sheet) ให้สลับไปยังหน้านั้นทันที
-    if (targetUrl) {
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
-      var targetSheet = ss.getSheetByName(targetUrl);
       
-      range.uncheck(); 
-      sheet.getRange("A1").activate(); 
-      
-      if (targetSheet) {
-        ss.toast("⏳ กำลังสลับหน้า กรุณารอสักครู่...", "🚀 ระบบทำงาน", 3);
-        targetSheet.activate();
-      } else {
-        ss.toast("❌ ไม่พบหน้า: " + targetUrl + " กรุณาสร้างหน้านี้ก่อน", "ข้อผิดพลาด", 4);
+      // หากพบเป้าหมาย (ชื่อหน้า Sheet) ให้สลับไปยังหน้านั้นทันที
+      if (targetUrl) {
+        var ss = SpreadsheetApp.getActiveSpreadsheet();
+        var targetSheet = ss.getSheetByName(targetUrl);
+        
+        range.uncheck(); 
+        sheet.getRange("A1").activate(); 
+        
+        if (targetSheet) {
+          ss.toast("⏳ กำลังสลับหน้า กรุณารอสักครู่...", "🚀 ระบบทำงาน", 3);
+          targetSheet.activate();
+        } else {
+          ss.toast("❌ ไม่พบหน้า: " + targetUrl + " กรุณาสร้างหน้านี้ก่อน", "ข้อผิดพลาด", 4);
+        }
+        return; 
       }
-      return; 
     }
-  }
 
-  // ==========================================
-  // ⚙️ ตรรกะส่วนที่ 2: DevOps Engine (System_Changelog)
-  // ==========================================
-  if (sheetName === "System_Changelog" && col === 8 && row > 1) {
-    if (value === "🟢 เสถียรแล้ว (Lock Code)") {
-      if (typeof handleLockCode === "function") {
-        handleLockCode(e);
+    // ==========================================
+    // ⚙️ ตรรกะส่วนที่ 2: DevOps Engine (System_Changelog)
+    // ==========================================
+    if (sheetName === "System_Changelog" && col === 8 && row > 1) {
+      if (value === "🟢 เสถียรแล้ว (Lock Code)") {
+        if (typeof handleLockCode === "function") {
+          handleLockCode(e);
+        }
+      } else if (value === "🧪 กำลังทดสอบ") {
+        sheet.getRange(row, 7).clearContent();
+        e.source.toast("🗑️ ล้างรหัสในคลังสำรองออกแล้ว", "DevOps Engine", 4);
       }
-    } else if (value === "🧪 กำลังทดสอบ") {
-      sheet.getRange(row, 7).clearContent();
-      e.source.toast("🗑️ ล้างรหัสในคลังสำรองออกแล้ว", "DevOps Engine", 4);
     }
-  }
 
-  // ==========================================
-  // 🎨 ตรรกะส่วนที่ 3: Workspace Utilities (Code_Workspace)
-  // ==========================================
-  if (sheetName === "Code_Workspace" && col <= 3 && range.getLastColumn() >= 3 && row > 1) {
-    if (typeof highlightDuplicateFunctions === "function") {
-      highlightDuplicateFunctions();
+    // ==========================================
+    // 🎨 ตรรกะส่วนที่ 3: Workspace Utilities (Code_Workspace)
+    // ==========================================
+    if (sheetName === "Code_Workspace" && col <= 3 && range.getLastColumn() >= 3 && row > 1) {
+      if (typeof highlightDuplicateFunctions === "function") {
+        highlightDuplicateFunctions();
+      }
     }
+  } catch (err) {
+    console.error("onEdit error: " + err.message);
   }
 }
 function openLinkInNewTab(url) {
