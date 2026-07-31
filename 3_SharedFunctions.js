@@ -162,7 +162,19 @@ function parseComplexMessage(text) {
 
 
 
-function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
+/**
+ * คำนวณเวลาทำงานและหักเวลาพักอัตโนมัติ (Automated Break Deduction)
+ * @param {Object} sheet - Object ของแผ่นงาน
+ * @param {number} row - แถวที่ต้องการอัปเดตข้อมูล
+ * @param {string|number} sT - เวลาเข้างาน (เช่น "08.00")
+ * @param {string|number} eT - เวลาออกงาน (เช่น "17.00")
+ * @param {boolean} isN - มีการทำ OT เที่ยงหรือไม่
+ * @param {string} nI - เวลาเข้า OT เที่ยง
+ * @param {string} nO - เวลาออก OT เที่ยง
+ * @param {string} recordDate - วันที่บันทึกข้อมูล (Format: DD/MM/YYYY) สำหรับเช็คเงื่อนไขกฎหมายใหม่
+ * @return {number} - จำนวนชั่วโมง OT รวม
+ */
+function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO, recordDate) {
   try {
     if (!eT || eT.toString().trim() === "") { sheet.getRange(row, GLOBAL_CONFIG.COL_NORMAL_HR).clearContent(); sheet.getRange(row, GLOBAL_CONFIG.COL_OT_M_IN, 1, 7).clearContent(); return 0; }
     const toM = (t) => { const p = t.toString().split(/[.:]/); return (parseInt(p[0])||0)*60 + (parseInt(p[1])||0); };
@@ -171,24 +183,76 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
 
     const s = toM(sT); let e = toM(eT); if(e===0) return 0;
     if(e<s) e+=1440;
+
+    let isNewOTRule = false;
+    let isTransitionPeriod = false;
+    if (recordDate) {
+        try {
+            let p = String(recordDate).trim().split(/[\/\-]/);
+            if (p.length >= 2) {
+                let d = parseInt(p[0], 10) || 0;
+                let m = parseInt(p[1], 10) || 0;
+                let y = parseInt(p[2], 10) || new Date().getFullYear();
+                if (y > 2500) y -= 543;
+                else if (y < 100) y += 2000;
+                
+                let curDate = new Date(y, m - 1, d);
+                let thresholdDate = new Date(2026, 6, 16); // 16 July 2026
+                let endTransitionDate = new Date(2026, 6, 31); // 31 July 2026
+                if (curDate >= thresholdDate) {
+                    isNewOTRule = true;
+                    if (curDate <= endTransitionDate) {
+                        isTransitionPeriod = true;
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("Date parse error: " + err.message);
+        }
+    }
     
     // 1. คำนวณเวลาทำงานรวม และหักพักเที่ยง
     let totalMins = e - s;
-    let breakStart = Math.max(s, 720);
-    let breakEnd = Math.min(e, 780);
     let breakDuration = 0;
     
-    if (breakStart < breakEnd) {
-        breakDuration = breakEnd - breakStart;
+    // หักพักเที่ยง (Noon Break) 12:00 - 13:00
+    let nBreakStart = Math.max(s, 720);
+    let nBreakEnd = Math.min(e, 780);
+    let noonBreakDuration = 0;
+    
+    if (nBreakStart < nBreakEnd) {
+        noonBreakDuration = nBreakEnd - nBreakStart;
         if (isN) {
             let otNIn = toM(nI || "12.00");
             let otNOut = toM(nO || "13.00");
             let otNDuration = Math.max(0, otNOut - otNIn);
-            breakDuration = Math.max(0, breakDuration - otNDuration);
+            noonBreakDuration = Math.max(0, noonBreakDuration - otNDuration);
+        }
+    }
+    breakDuration += noonBreakDuration;
+
+    // กฎใหม่: หักพักสำหรับ OT เช้าและเย็น
+    if (isNewOTRule) {
+        // Morning OT Break (07:30 - 08:00)
+        let mBreakStart = Math.max(s, 450);
+        let mBreakEnd = Math.min(e, 480);
+        if (mBreakStart < mBreakEnd) {
+            breakDuration += (mBreakEnd - mBreakStart);
+        }
+
+        // Evening OT Break (17:00 - 17:30)
+        let eBreakStart = Math.max(s, 1020);
+        let eBreakEnd = Math.min(e, 1050);
+        if (eBreakStart < eBreakEnd) {
+            // กฎหมาย: ทำโอทีไม่ถึง 2 ชม. (เลิกก่อน 19:00) ไม่ต้องหักพักเบรค
+            // ยกเว้นช่วง 16-31 ก.ค. หักทุกคน
+            if (isTransitionPeriod || e >= 1140) {
+                breakDuration += (eBreakEnd - eBreakStart);
+            }
         }
     }
     
-    let actualWorkMins = totalMins - breakDuration;
+    let actualWorkMins = Math.max(0, totalMins - breakDuration);
     let normMins = 0;
     let otMins = 0;
     let otData = ["", "", "", "", "", "", ""];
@@ -217,17 +281,33 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO) {
         
         // 2.2 ลงช่อง OT เช้า
         if (s < 480 && remainingOt > 0) {
-            let morningOtDuration = Math.min(480 - s, remainingOt);
-            otData[0] = toF(s);
-            otData[1] = toF(s + morningOtDuration);
-            remainingOt -= morningOtDuration;
+            let availableMorning = 0;
+            if (isNewOTRule) {
+                let endM = Math.min(450, e);
+                availableMorning = Math.max(0, endM - s);
+            } else {
+                availableMorning = Math.max(0, Math.min(480, e) - s);
+            }
+            let morningOtDuration = Math.min(availableMorning, remainingOt);
+            if (morningOtDuration > 0) {
+                otData[0] = toF(s);
+                otData[1] = toF(s + morningOtDuration);
+                remainingOt -= morningOtDuration;
+            }
         }
         
         // 2.3 ลงช่อง OT เย็น
         if (remainingOt > 0) {
-            let otEIn = e - remainingOt;
+            let otEIn = 0;
+            if (isNewOTRule && e > 1050) {
+                otEIn = Math.max(1050, e - remainingOt);
+            } else if (!isNewOTRule && e > 1020) {
+                otEIn = Math.max(1020, e - remainingOt);
+            } else {
+                otEIn = Math.max(s, e - remainingOt);
+            }
             otData[4] = toF(otEIn);
-            otData[5] = toF(e);
+            otData[5] = toF(otEIn + remainingOt);
             remainingOt -= remainingOt;
         }
     }

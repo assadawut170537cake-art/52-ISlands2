@@ -81,7 +81,7 @@ function writeToDailySheetBatch(data, userId, fileId) {
         block[rowIndex][CORE_DB.COL_ACCOM - 1] = empAccom;
       }
       
-      const otHrs = calculateAndTimeEntryFromValues(block, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
+      const otHrs = calculateAndTimeEntryFromValues(block, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date);
       
       if (otHrs > 0) { 
          block[rowIndex][8] = data.default_site; 
@@ -107,7 +107,7 @@ function writeToDailySheetBatch(data, userId, fileId) {
 /**
  * คำนวณเวลาทำงานปกติและ OT ตามมาตรฐาน CORE_DB
  */
-function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
+function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, recordDate) {
   try {
     if (!eT || eT.toString().trim() === "") {
       block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = "";
@@ -136,6 +136,52 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
             let otNOut = toM(nO || "13.00");
             let otNDuration = Math.max(0, otNOut - otNIn);
             breakDuration = Math.max(0, breakDuration - otNDuration);
+        }
+    }
+    
+    // [NEW] กฎใหม่: หักพักสำหรับ OT เช้าและเย็น (เริ่ม 16/07/2026)
+    let isNewOTRule = false;
+    let isTransitionPeriod = false;
+    if (recordDate) {
+        try {
+            let p = String(recordDate).trim().split(/[\/\-]/);
+            if (p.length >= 2) {
+                let d = parseInt(p[0], 10) || 0;
+                let m = parseInt(p[1], 10) || 0;
+                let y = parseInt(p[2], 10) || new Date().getFullYear();
+                if (y > 2500) y -= 543;
+                else if (y < 100) y += 2000;
+                
+                let curDate = new Date(y, m - 1, d);
+                let thresholdDate = new Date(2026, 6, 16); // 16 July 2026
+                let endTransitionDate = new Date(2026, 6, 31); // 31 July 2026
+                if (curDate >= thresholdDate) {
+                    isNewOTRule = true;
+                    if (curDate <= endTransitionDate) {
+                        isTransitionPeriod = true;
+                    }
+                }
+            }
+        } catch (err) {}
+    }
+
+    if (isNewOTRule) {
+        // Morning OT Break (07:30 - 08:00)
+        let mBreakStart = Math.max(s, 450);
+        let mBreakEnd = Math.min(e, 480);
+        if (mBreakStart < mBreakEnd) {
+            breakDuration += (mBreakEnd - mBreakStart);
+        }
+
+        // Evening OT Break (17:00 - 17:30)
+        let eBreakStart = Math.max(s, 1020);
+        let eBreakEnd = Math.min(e, 1050);
+        if (eBreakStart < eBreakEnd) {
+            // กฎหมาย: ทำโอทีไม่ถึง 2 ชม. (เลิกก่อน 19:00) ไม่ต้องหักพักเบรค
+            // ยกเว้นช่วง 16-31 ก.ค. หักทุกคน
+            if (isTransitionPeriod || e >= 1140) {
+                breakDuration += (eBreakEnd - eBreakStart);
+            }
         }
     }
     
@@ -168,17 +214,33 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO) {
         
         // 2.2 ลงช่อง OT เช้า (ถ้ายอดเริ่มงานก่อน 08.00 น.)
         if (s < 480 && remainingOt > 0) {
-            let morningOtDuration = Math.min(480 - s, remainingOt);
-            otData[0] = toF(s);
-            otData[1] = toF(s + morningOtDuration);
-            remainingOt -= morningOtDuration;
+            let availableMorning = 0;
+            if (isNewOTRule) {
+                let endM = Math.min(450, e);
+                availableMorning = Math.max(0, endM - s);
+            } else {
+                availableMorning = Math.max(0, Math.min(480, e) - s);
+            }
+            let morningOtDuration = Math.min(availableMorning, remainingOt);
+            if (morningOtDuration > 0) {
+                otData[0] = toF(s);
+                otData[1] = toF(s + morningOtDuration);
+                remainingOt -= morningOtDuration;
+            }
         }
         
         // 2.3 ถ้ายังมี OT เหลือ ให้ไปลงช่อง OT เย็น
         if (remainingOt > 0) {
-            let otEIn = e - remainingOt;
+            let otEIn = 0;
+            if (isNewOTRule && e > 1050) {
+                otEIn = Math.max(1050, e - remainingOt);
+            } else if (!isNewOTRule && e > 1020) {
+                otEIn = Math.max(1020, e - remainingOt);
+            } else {
+                otEIn = Math.max(s, e - remainingOt);
+            }
             otData[4] = toF(otEIn);
-            otData[5] = toF(e);
+            otData[5] = toF(otEIn + remainingOt);
             remainingOt -= remainingOt;
         }
     }

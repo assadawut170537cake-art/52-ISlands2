@@ -116,11 +116,14 @@ function writeToDailySheet(data, userId, fileId) {
 
         // ประมวลผลและคำนวณรอบเวลาการทำโอที (OT Calculation)
         let calculatedOT = 0;
-        if (data.timeIn && data.timeOut && !data.isOTDetailsOnly) {
-          if (typeof calculateAndFillTimes === 'function') {
-            calculatedOT = calculateAndFillTimes(block, rowIndex, data.timeIn, data.timeOut);
+        const tIn = data.time_start || data.timeIn;
+        const tOut = data.time_end || data.timeOut;
+        
+        if (tIn && tOut && !data.isOTDetailsOnly) {
+          if (typeof calculateAndTimeEntryFromValues === 'function') {
+            calculatedOT = calculateAndTimeEntryFromValues(block, rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date);
           } else if (typeof calculateAndTimeEntry === 'function') {
-            calculatedOT = calculateAndTimeEntry(sheet, startRow + rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out);
+            calculatedOT = calculateAndTimeEntry(sheet, startRow + rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date);
           }
         } else if (data.otHours !== undefined) {
           let currentOT = parseFloat(block[rowIndex][colOtTotal - 1]) || 0;
