@@ -1,13 +1,29 @@
 {
-  "bundleChecksum": "bc979da9390891279b78656ba373007eaef81f4ca5ad1765f15927c7eb020ad4",
+  "bundleChecksum": "c8488f4a44cab5a65745b6c70a0f27d30149aeb3e4a951e0f70c4c9032d15102",
   "skills": {
     "accidental-data-loss-prevention": {
       "status": "installed",
       "checksum": "b8f858f8143114ed9189b29ea8af1672378d66db3b8c92c5ec1b23712141ef1b"
     },
+    "bigquery-ai-ml": {
+      "status": "installed",
+      "checksum": "ce59cc9f4c23874e50a71970bfedb99ed79e8df165754464ab8fff3dc5244135"
+    },
+    "bigquery-bigframes": {
+      "status": "installed",
+      "checksum": "5d59253b5b35761c611c502f8731be6297d4c3e8fc5d0141c0fd67e81343c610"
+    },
     "bigquery-data-transfer-service": {
       "status": "installed",
       "checksum": "a560c16c715c2d240eeb2abafc1bcea079062ccd7ff99b80b84cdf29eb43d69d"
+    },
+    "bigquery-graph": {
+      "status": "installed",
+      "checksum": "a97c46bdf0cb71c9fca6b88e2e56a3407601825523aaec58681403fa3d99c7c1"
+    },
+    "bigquery-sql": {
+      "status": "installed",
+      "checksum": "6f6fae521a8bf7618bae76894fe45ab8d56fcc77b78dc1b4be2dfbe792b90c42"
     },
     "building-data-apps": {
       "status": "installed",
@@ -16,6 +32,14 @@
     "data-autocleaning": {
       "status": "installed",
       "checksum": "4ff7ce836870f6775477f79ece9f1b0390e31c6d7921ee94c148cd2a357a4ecc"
+    },
+    "dataform-bigquery": {
+      "status": "installed",
+      "checksum": "d3d45288ced26c093a6676834a1263d4a8c1b80f59f58a508e52a1ccf4b10339"
+    },
+    "dbt-bigquery": {
+      "status": "installed",
+      "checksum": "3c4b221e6bf3414e656f1e1e0b0a4dd2763879d1fa69dfc82d663a84e548364f"
     },
     "discovering-gcp-data-assets": {
       "status": "installed",
@@ -77,33 +101,9 @@
       "status": "installed",
       "checksum": "276efcab0cdeb25cb412644bcf0fd5fb827f4873b44a6ba24f4e49e035d25c3e"
     },
-    "bigquery-ai-ml": {
-      "status": "installed",
-      "checksum": "ce59cc9f4c23874e50a71970bfedb99ed79e8df165754464ab8fff3dc5244135"
-    },
-    "bigquery-bigframes": {
-      "status": "installed",
-      "checksum": "5d59253b5b35761c611c502f8731be6297d4c3e8fc5d0141c0fd67e81343c610"
-    },
-    "bigquery-graph": {
-      "status": "installed",
-      "checksum": "a97c46bdf0cb71c9fca6b88e2e56a3407601825523aaec58681403fa3d99c7c1"
-    },
-    "bigquery-sql": {
-      "status": "installed",
-      "checksum": "6f6fae521a8bf7618bae76894fe45ab8d56fcc77b78dc1b4be2dfbe792b90c42"
-    },
-    "dataform-bigquery": {
-      "status": "installed",
-      "checksum": "d3d45288ced26c093a6676834a1263d4a8c1b80f59f58a508e52a1ccf4b10339"
-    },
-    "dbt-bigquery": {
-      "status": "installed",
-      "checksum": "3c4b221e6bf3414e656f1e1e0b0a4dd2763879d1fa69dfc82d663a84e548364f"
-    },
     "enforcing-resource-attribution": {
       "status": "installed",
-      "checksum": "da6df04872e302cd7dcacfc6f897f857fdc73db49ac7afd2e1401c037af4cff4"
+      "checksum": "9b65878e9635443b17b01ab78a06e459df77763b325f95fe592a783c1c60a645"
     }
   }
 }
