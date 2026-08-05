@@ -123,6 +123,10 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
     if (e === 0) return 0;
     if (e < s) e += 1440; 
     
+    // [NEW] ตรวจสอบว่าเป็นการลง OT เย็นแยกต่างหากหรือไม่ (Smart Append OT)
+    let currentNormHrs = parseFloat(block[rowIndex][CORE_DB.COL_NORMAL_HR - 1]) || 0;
+    let isAppendEveningOT = (s >= 1020 && currentNormHrs > 0);
+    
     // 1. คำนวณเวลาทำงานรวม และหักพักเที่ยง
     let totalMins = e - s;
     let breakStart = Math.max(s, 720);
@@ -141,7 +145,6 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
     
     // [NEW] กฎใหม่: หักพักสำหรับ OT เช้าและเย็น (เริ่ม 16/07/2026)
     let isNewOTRule = false;
-    let isTransitionPeriod = false;
     if (recordDate) {
         try {
             let p = String(recordDate).trim().split(/[\/\-]/);
@@ -154,12 +157,8 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
                 
                 let curDate = new Date(y, m - 1, d);
                 let thresholdDate = new Date(2026, 6, 16); // 16 July 2026
-                let endTransitionDate = new Date(2026, 6, 31); // 31 July 2026
                 if (curDate >= thresholdDate) {
                     isNewOTRule = true;
-                    if (curDate <= endTransitionDate) {
-                        isTransitionPeriod = true;
-                    }
                 }
             }
         } catch (err) {}
@@ -177,15 +176,25 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
         let eBreakStart = Math.max(s, 1020);
         let eBreakEnd = Math.min(e, 1050);
         if (eBreakStart < eBreakEnd) {
-            // กฎหมาย: ทำโอทีไม่ถึง 2 ชม. (เลิกก่อน 19:00) ไม่ต้องหักพักเบรค
-            // ยกเว้นช่วง 16-31 ก.ค. หักทุกคน
-            if (isTransitionPeriod || e >= 1140) {
-                breakDuration += (eBreakEnd - eBreakStart);
-            }
+            // หักพักเบรกเย็น 17:00 - 17:30 ของทุกคน โดยไม่มีเงื่อนไขเวลาเลิกงาน
+            breakDuration += (eBreakEnd - eBreakStart);
         }
     }
     
     let actualWorkMins = totalMins - breakDuration;
+    
+    if (isAppendEveningOT) {
+        let eveningOtMins = actualWorkMins;
+        let currentOtMins = Math.round(parseFloat(block[rowIndex][CORE_DB.COL_OT_TOTAL - 1] || 0) * 60);
+        
+        block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + 4] = toF(s);
+        block[rowIndex][CORE_DB.COL_OT_M_IN - 1 + 5] = toF(e);
+        
+        let newOtTotal = currentOtMins + eveningOtMins;
+        block[rowIndex][CORE_DB.COL_OT_TOTAL - 1] = newOtTotal > 0 ? toHrs(newOtTotal) : "";
+        return toHrs(newOtTotal);
+    }
+
     let normMins = 0;
     let otMins = 0;
     let otData = ["", "", "", "", "", "", ""];

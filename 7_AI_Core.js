@@ -66,7 +66,7 @@ function callGeminiVision(base64Str, systemInstruction, mimeType, useWebKey = fa
     const props = PropertiesService.getScriptProperties();
     
     // ตั้งค่าตัวเลือกชื่อโมเดล AI มาตรฐาน
-    let model = "gemini-2.5-flash";
+    let model = "gemini-1.5-flash";
     if (typeof getDynamicConfig === 'function') {
       model = getDynamicConfig('MODEL_NAME') || model;
     } else {

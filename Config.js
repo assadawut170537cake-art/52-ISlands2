@@ -9,7 +9,7 @@ var GLOBAL_CONFIG = {
   "LINE_CHANNEL_ACCESS_TOKEN": "", // ดึงจาก PropertiesService
   "GEMINI_API_KEY_LINE": "", // ดึงจาก PropertiesService
   "GEMINI_API_KEY_WEB": "", // ดึงจาก PropertiesService
-  "MODEL_NAME": "gemini-2.5-flash",
+  "MODEL_NAME": "gemini-1.5-flash",
   "ADMIN_LINE_IDS": "", // ดึงจาก PropertiesService
   "SYSTEM_STATUS": "ON",
   "IS_TESTING": "FALSE",

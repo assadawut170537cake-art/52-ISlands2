@@ -15,7 +15,7 @@ function INITIAL_SETUP_PROPERTIES() {
     "ADMIN_COLUMN": "26",
 
     // 🟡 [3] ข้อมูลฐานข้อมูลและตรรกะระบบส่วนกลาง (ใช้ร่วมกัน)
-    "MODEL_NAME": "gemini-2.5-flash",
+    "MODEL_NAME": "gemini-1.5-flash",
     "EXTERNAL_DATABASE_ID": "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk",
     "DATABASE_SHEET_NAME": "รายชื่อพนักงาน",
     "SHEET_STAFF": "รายชื่อพนักงาน",

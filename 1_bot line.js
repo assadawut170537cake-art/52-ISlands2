@@ -170,8 +170,38 @@ function handleLineWebhook(requestData, e) {
     var source = event.source;
     var groupId = source.groupId;
 
-    // 1. เพิ่มเงื่อนไขเพื่อดักจับ 'postback' ควบคู่ไปกับ 'message'
-    if (event.type === "message" || event.type === "postback") {
+    // 0. ดักจับข้อความแชทส่วนตัวเพื่อประมวลผลบัตรตอกอัตโนมัติ
+    if (typeof handleAutoTimecardEvent === "function" && source && source.type === "user") {
+      try {
+        if (handleAutoTimecardEvent(event)) {
+          return ContentService.createTextOutput("OK");
+        }
+      } catch (autoErr) {
+        console.error("handleAutoTimecardEvent Exception: " + autoErr.message);
+      }
+    }
+
+    // 1. เพิ่มเงื่อนไขเพื่อดักจับ 'unsend' (ยกเลิกข้อความ), 'message', และ 'postback'
+    if (event.type === "unsend") {
+      try {
+        const userId = source.userId;
+        const props = PropertiesService.getScriptProperties();
+        const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+        if (lastJson) {
+          const last = JSON.parse(lastJson);
+          if (last.names && last.names.length > 0 && typeof undoLastEntry === "function") {
+            for (let i = 0; i < last.names.length; i++) {
+              undoLastEntry(last.names[i], last.date);
+            }
+            props.deleteProperty(`LAST_ENTRY_${userId}`);
+          }
+        }
+      } catch (e) {
+        console.error("handleLineWebhook unsend error: " + e.message);
+      }
+      return ContentService.createTextOutput("OK");
+      
+    } else if (event.type === "message" || event.type === "postback") {
       let globalReplyToken = event.replyToken;
       try {
         const userId = source.userId;
@@ -224,6 +254,34 @@ function handleLineWebhook(requestData, e) {
         // 3. นำตัวแปรกลางนั้นส่งต่อเข้าไปทำงาน
         if (isTextMsg) {
           
+          let isEditMode = false;
+          if (/^แก้ไข/i.test(actionData)) {
+            isEditMode = true;
+            // ลบคำว่า แก้ไข ออก เพื่อไม่ให้ไปกวนการ Extract และ Parsing 
+            actionData = actionData.replace(/^แก้ไข\s*/i, "").trim();
+            msg = actionData;
+            
+            // ถ้าเป็นโหมดแก้ไข ให้ล้างข้อมูลของ LAST_ENTRY ก่อนเลย เพื่อจะได้บันทึกทับข้อมูลเดิม
+            try {
+              const props = PropertiesService.getScriptProperties();
+              const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+              if (lastJson) {
+                const last = JSON.parse(lastJson);
+                if (last.names && last.names.length > 0 && typeof undoLastEntry === "function") {
+                  let undoMsg = "ทำการแก้ไขข้อมูลของ: ";
+                  for (let i = 0; i < last.names.length; i++) {
+                    undoLastEntry(last.names[i], last.date);
+                    undoMsg += last.names[i] + (i < last.names.length - 1 ? ", " : "");
+                  }
+                  props.deleteProperty(`LAST_ENTRY_${userId}`);
+                  if (typeof pushMessage === "function") pushMessage(userId, "✅ " + undoMsg + "\nระบบกำลังบันทึกข้อมูลใหม่แทนที่...");
+                }
+              }
+            } catch (err) {
+               console.error("isEditMode undo error: " + err.message);
+            }
+          }
+
           // [PRE-GUARD]: อนุญาตให้คำสั่งขอ ID พื้นฐานทำงานได้แม้กลุ่มยังไม่ได้อยู่ใน Whitelist
           let cmdTrimmed = actionData.startsWith("#") ? actionData.substring(1).trim() : actionData;
           let payloadDate = null;
@@ -742,19 +800,28 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
       if (sheet) {
         // 🛠️ แปลงค่า START_ROW ให้เป็น Number เสมอกันบั๊กคำนวณแถวเพี้ยน
         const startRow = parseInt(getDynamicConfig("START_ROW"), 10) || 3;
-        const dbData = sheet.getRange(startRow, 4, Math.max(1, sheet.getLastRow() - startRow + 1), 2).getValues();
+        const numRows = Math.max(1, sheet.getLastRow() - startRow + 1);
+        const dbData = sheet.getRange(startRow, 4, numRows, 2).getValues();
         
+        // 🚀 ดึงข้อมูลช่วง OT (คอลัมน์ 9 และ 10) มาทำงานใน Memory เพื่อใช้ setValues() แทนการวนลูป setValue() ทีละแถว
+        const otRange = sheet.getRange(startRow, 9, numRows, 2);
+        const otValues = otRange.getValues();
+
         data.employees.forEach(emp => {
           const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
           for (let i = 0; i < dbData.length; i++) {
-            if (normalize(dbData[i][0]) === inputName) {
-              // 🛠️ แก้ไขลอจิก i + startRow ป้องกันการเกิดข้อความต่อกัน (เช่น แถว 13 แทนที่จะเป็นแถว 4)
-              sheet.getRange(i + startRow, 9).setValue(customOtSite);
-              sheet.getRange(i + startRow, 10).setValue(customOtTask);
+            const dbName = typeof normalize === 'function' ? normalize(dbData[i][0]) : dbData[i][0];
+            if (dbName === inputName) {
+              // 🛠️ อัปเดตข้อมูลในหน่วยความจำโดยตรง
+              otValues[i][0] = customOtSite;
+              otValues[i][1] = customOtTask;
               break;
             }
           }
         });
+        
+        // 📝 เขียนข้อมูลกลับคืนสู่ชีตด้วย API Call เพียงครั้งเดียว
+        otRange.setValues(otValues);
       }
     } catch (e) { console.error("Custom OT error: " + e.message); }
   }
@@ -786,7 +853,8 @@ function handleImageProcess(mId, tk, uId) {
       headers: { Authorization: "Bearer " + getDynamicConfig('LINE_CHANNEL_ACCESS_TOKEN') }
     }).getBlob();
 
-    const prompt = `SYSTEM: You are a strict Image verifier. Is this image a timesheet (bille/slip) or a human face?
+    const prompt = `SYSTEM: You are a strict Image verifier. Your task is to detect employee ID codes (starting with "52") ONLY from PHYSICAL handwritten timecards, slips, or employee badges.
+CRITICAL EXCLUSIONS: If the image is a digital spreadsheet, a table, a daily summary report, a Google Sheets screen, or an Excel screen, you MUST set "is_target" to false, set confidence to 0, and return empty codes []. Do NOT process reports.
 Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52011", ...], "reason": "string" }`;
 
     let aiRes = callGeminiVision(Utilities.base64Encode(blob.getBytes()), prompt, "image/jpeg");
@@ -821,18 +889,26 @@ Return JSON: { "is_target": boolean, "confidence": number (0-100), "codes": ["52
 }
 
 function handleUndoLastAction(userId, token) {
-  const cache = CacheService.getScriptCache();
-  const lastJson = cache.get(`LAST_ENTRY_${userId}`);
+  const props = PropertiesService.getScriptProperties();
+  const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
   if (!lastJson) {
-    reply(token, "⚠️ ไม่พบรายการล่าสุด");
+    reply(token, "⚠️ ไม่พบรายการล่าสุด หรือหมดเวลาการยกเลิกไปแล้ว");
     return;
   }
   try {
     const last = JSON.parse(lastJson);
-    reply(token, undoLastEntry(last.names[0], last.date));
-    cache.remove(`LAST_ENTRY_${userId}`);
+    let messages = [];
+    if (last.names && last.names.length > 0) {
+      for (let i = 0; i < last.names.length; i++) {
+        messages.push(undoLastEntry(last.names[i], last.date));
+      }
+      reply(token, "✅ ยกเลิกข้อมูลทั้งหมด " + last.names.length + " รายการ\n" + messages.join("\n"));
+    } else {
+      reply(token, "⚠️ ไม่พบรายชื่อในรายการล่าสุด");
+    }
+    props.deleteProperty(`LAST_ENTRY_${userId}`);
   } catch (e) {
-    reply(token, "❌ Undo Error");
+    reply(token, "❌ Undo Error: " + e.message);
   }
 }
 

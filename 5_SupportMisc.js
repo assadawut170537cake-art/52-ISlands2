@@ -36,6 +36,40 @@ function notifyAdminOnError(subject, body) {
   }
 }
 
+/**
+ * ส่งข้อความไปยังกลุ่ม LINE ที่ได้รับอนุญาต (ดึงจาก ALLOWED_GROUP_IDS)
+ */
+function pushMessageToAllowedGroups(text) {
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const whitelistString = properties.getProperty("ALLOWED_GROUP_IDS");
+    const token = getSecret("LINE_CHANNEL_ACCESS_TOKEN");
+    
+    if (!token || !whitelistString) return false;
+
+    const groupIds = whitelistString.split(",").map(id => id.trim()).filter(Boolean);
+    if (groupIds.length === 0) return false;
+
+    groupIds.forEach(id => {
+      const payload = {
+        to: id,
+        messages: [{ type: "text", text: text }]
+      };
+      UrlFetchApp.fetch("https://api.line.me/v2/bot/message/push", {
+        method: "post",
+        headers: { "Authorization": "Bearer " + token },
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+    });
+    return true;
+  } catch (e) {
+    console.error("pushMessageToAllowedGroups error: " + e.message);
+    return false;
+  }
+}
+
 function appendAutoMatchAudit(pending, action, appliedBy, appliedByRole) {
   try {
     const ssId = getSecret("EXTERNAL_DATABASE_ID");
@@ -120,7 +154,7 @@ function getValidNamesForAI() {
 
 function callGeminiText(userText) {
   try {
-    const model = getSecret("MODEL_NAME") || "gemini-2.5-flash";
+    const model = getSecret("MODEL_NAME") || "gemini-1.5-flash";
     const apiKey = getSecret("GEMINI_API_KEY_WEB") || getSecret("GEMINI_API_KEY_LINE");
     if (!apiKey) return { success: false, text: "Error: API Key not found in system" };
 

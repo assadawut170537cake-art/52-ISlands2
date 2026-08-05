@@ -270,7 +270,7 @@
         const apiKey = ""; // <--- ⚠️ วาง API KEY ของ Gemini ตรงนี้
 
         const fetchGemini = async (prompt, systemInstruction = "", base64Image = null) => {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
             const parts = [{ text: prompt }];
             if (base64Image) {
@@ -458,20 +458,6 @@
             { A: 9, B: 'นาย', C: 'ซอ', D: 'หม่อง', E: 'นาย ซอ หม่อง', J: 'โกดังลาดกระบัง', K: 'ปกติ', N: '52003' }
         ];
 
-        const MOCK_SITES_WITH_COORDS = [
-            { name: 'โครงการอาคารสูง Rama 3', lat: 13.6821, lng: 100.5342 },
-            { name: 'โกดังศูนย์กระจายสินค้า ลาดกระบัง', lat: 13.7241, lng: 100.7485 },
-            { name: 'โครงการคอนโด พัทยา เฟส 2', lat: 12.9235, lng: 100.8824 },
-            { name: 'ไซต์วิลล่าหรู สาทร', lat: 13.7156, lng: 100.5281 },
-            { name: 'สาธุประดิษฐ์', lat: 13.7023, lng: 100.5284 },
-            { name: 'บางละมุง', lat: 12.9813, lng: 100.9172 },
-            { name: 'คลองสาน', lat: 13.7294, lng: 100.5073 },
-            { name: 'ปรานบุรี', lat: 12.3842, lng: 99.9125 },
-            { name: 'ดุสิต', lat: 13.7661, lng: 100.5186 },
-            { name: 'สุขุมวิท101', lat: 13.6936, lng: 100.6067 },
-            { name: 'นิมิตใหม่', lat: 13.8694, lng: 100.7302 },
-            { name: 'เลควูด', lat: 13.6186, lng: 100.7547 }
-        ];
 
         // ============================================================
         // SVG ICONS (Native SVG)
@@ -989,7 +975,7 @@
                 if (!navigator.geolocation) return showNotification('เบราว์เซอร์นี้ไม่รองรับพิกัด GPS', 'error');
                 setGpsStatusText('กำลังดึงพิกัด...');
 
-                const sitesWithCoords = typeof MOCK_SITES_WITH_COORDS !== 'undefined' ? MOCK_SITES_WITH_COORDS : [];
+                const sitesWithCoords = [];
                 if (sitesWithCoords.length === 0) {
                     setGpsStatusText('⚠️ ไม่พบข้อมูลพิกัดไซต์งานอ้างอิง');
                     return;
@@ -1117,62 +1103,56 @@
                 const employeeNames = selectedEmployees.map(id => activeEmps.find(e => e.N === id)?.E || id);
 
                 if (typeof google !== 'undefined' && google.script && google.script.run) {
-
-                    const saveWorkerSequential = (index) => {
-                        if (index >= selectedEmployees.length) {
-                            setIsSaving(false);
-                            showNotification(`✅ บันทึกรายงานพนักงาน ${selectedEmployees.length} คนลงแผ่นงานเรียบร้อยครบถ้วน`, 'success');
-
-                            setDailyReports(prev => [{
-                                id: Date.now(),
-                                date: selectedDate,
-                                site: selectedSite,
-                                timeIn: bulkStartTime,
-                                timeOut: bulkEndTime,
-                                normalHour: Number(workH),
-                                otTotal: otCalculated,
-                                employeesCount: selectedEmployees.length,
-                                names: employeeNames.join(', ')
-                            }, ...prev]);
-                            setActiveTab('dashboard');
-                            return;
-                        }
-
-                        const empId = selectedEmployees[index];
-                        const currentWorker = activeEmps.find(e => e.N === empId);
-                        const workerName = currentWorker ? currentWorker.E : empId;
-                        const workerCamp = currentWorker ? currentWorker.J : '';
-                        const customDetails = employeeCustomData[empId] || { note: bulkNote };
-
-                        const singlePayload = {
-                            date: selectedDate,
-                            site: selectedSite,
-                            normalHour: Number(workH),
-                            otTotal: otCalculated,
-                            employees: [workerName],
-                            timeIn: bulkStartTime,
-                            timeOut: bulkEndTime,
-                            note: customDetails.note || bulkNote,
-                            isAdmin: isAdmin
-                        };
-
-                        google.script.run
-                            .withSuccessHandler((response) => {
-                                if (response.success) {
-                                    saveWorkerSequential(index + 1); // รันพนักงานคนถัดไปเมื่อแถวก่อนหน้าผ่าน
-                                } else {
-                                    setIsSaving(false);
-                                    showNotification(`❌ บันทึกรายชื่อ ${workerName} ล้มเหลว: ${response.message}`, 'error');
-                                }
-                            })
-                            .withFailureHandler((error) => {
-                                setIsSaving(false);
-                                showNotification(`❌ ระบบเซิร์ฟเวอร์ขัดข้อง: ${error.message}`, 'error');
-                            })
-                            .saveDailyReport(singlePayload);
+                    // สร้าง Batch Payload แบบเดียวกับที่ LINE Bot ใช้
+                    const batchPayload = {
+                        date: selectedDate,
+                        default_site: selectedSite,
+                        time_start: bulkStartTime,
+                        time_end: bulkEndTime,
+                        employees: selectedEmployees.map(empId => {
+                            const currentWorker = activeEmps.find(e => e.N === empId);
+                            const workerName = currentWorker ? currentWorker.E : empId;
+                            const customDetails = employeeCustomData[empId] || { note: bulkNote };
+                            return {
+                                firstname: workerName,
+                                task: customDetails.note || bulkNote,
+                                accom: currentWorker ? currentWorker.J : "-",
+                                has_ot_noon: false, // สามารถเพิ่ม UI สำหรับ OT เที่ยงได้ในอนาคต
+                                ot_noon_in: "",
+                                ot_noon_out: ""
+                            };
+                        }),
+                        isAdmin: isAdmin,
+                        lineMessage: generateLineReport()
                     };
 
-                    saveWorkerSequential(0); // เริ่มคิวที่พนักงานคนแรก
+                    google.script.run
+                        .withSuccessHandler((response) => {
+                            setIsSaving(false);
+                            if (response.success) {
+                                showNotification(`✅ บันทึกรายงานพนักงาน ${selectedEmployees.length} คนลงแผ่นงานเรียบร้อยครบถ้วน`, 'success');
+                                setDailyReports(prev => [{
+                                    id: Date.now(),
+                                    date: selectedDate,
+                                    site: selectedSite,
+                                    timeIn: bulkStartTime,
+                                    timeOut: bulkEndTime,
+                                    normalHour: Number(workH),
+                                    otTotal: otCalculated,
+                                    employeesCount: selectedEmployees.length,
+                                    names: employeeNames.join(', ')
+                                }, ...prev]);
+                                setActiveTab('dashboard');
+                            } else {
+                                showNotification(`❌ บันทึกล้มเหลว: ${response.message}`, 'error');
+                            }
+                        })
+                        .withFailureHandler((error) => {
+                            setIsSaving(false);
+                            showNotification(`❌ ระบบเซิร์ฟเวอร์ขัดข้อง: ${error.message}`, 'error');
+                        })
+                        .saveDailyReport(batchPayload);
+
 
                 } else {
                     // แซนด์บ็อกซ์สำหรับหน้าบราวเซอร์ทดลองรัน Offline
@@ -1249,7 +1229,7 @@
                                     </div>
                                     <select value={selectedSite} onChange={e => setSelectedSite(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-400">
                                         <option value="">-- เลือกไซต์งานก่อสร้าง --</option>
-                                        {sites.length > 0 ? sites.map(name => <option key={name} value={name}>{name}</option>) : MOCK_SITES_WITH_COORDS.map(site => <option key={site.name} value={site.name}>{site.name}</option>)}
+                                        {sites.map(name => <option key={name} value={name}>{name}</option>)}
                                     </select>
                                     {gpsStatusText && <p className="text-[9px] font-semibold mt-1 text-emerald-600">{gpsStatusText}</p>}
                                 </div>

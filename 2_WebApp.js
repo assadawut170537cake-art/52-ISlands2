@@ -134,9 +134,27 @@ function saveDailyReport(payload) {
       return { success: false, message: "ไม่พบแท็บชีตวันที่: " + thaiFullDate + " ในไฟล์เดือนที่ " + (monthIndex + 1) + " (กรุณาสร้างแท็บวันที่ในไฟล์ก่อน)" };
     }
 
-    // ✅ บันทึกข้อมูลพนักงานลงแถวใหม่ในชีต
-    for (var i = 0; i < employees.length; i++) {
-      sheet.appendRow([dateStr, site, employees[i], normalHour, otTotal]);
+    // ✅ บันทึกข้อมูลพนักงานโดยใช้ Batch Process (ลอจิกเดียวกับ LINE Bot)
+    var result = { count: 0, errors: [] };
+    if (typeof writeToDailySheetBatch === 'function') {
+      // payload ตอนนี้ส่งมาเป็น format แบบเดียวกับ LINE Bot แล้ว 
+      // (มี date, default_site, time_start, time_end, employees[{firstname, task, accom, ...}])
+      
+      // ส่ง Session.getActiveUser().getEmail() เป็น userId ชั่วคราว (WebApp)
+      var userId = Session.getActiveUser().getEmail() || "WEB_APP_USER";
+      result = writeToDailySheetBatch(payload, userId, targetFileId);
+      
+      if (result.errors && result.errors.length > 0) {
+        var errorNames = result.errors.join(", ");
+        return { success: false, message: "บันทึกสำเร็จ " + result.count + " คน แต่มีข้อผิดพลาด (ไม่พบชื่อในชีต/จับคู่ไม่ได้): " + errorNames };
+      }
+    } else {
+      // Fallback ถ้าหาฟังก์ชัน writeToDailySheetBatch ไม่เจอ
+      for (var i = 0; i < employees.length; i++) {
+        var empName = typeof employees[i] === 'object' ? employees[i].firstname : employees[i];
+        sheet.appendRow([dateStr, payload.default_site || site, empName, normalHour, otTotal]);
+      }
+      result.count = employees.length;
     }
 
     // 📝 บันทึก Audit Trail
@@ -144,7 +162,12 @@ function saveDailyReport(payload) {
       logAuditTrail("WEB_APP", "SAVE_DAILY_REPORT", site + " | " + employees.length + " คน", Session.getActiveUser().getEmail() || "WEB_USER", 0, "SUCCESS", "Date: " + thaiFullDate);
     }
 
-    return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + employees.length + " คน)" };
+    // 📲 ส่งข้อความแจ้งเตือนเข้ากลุ่ม LINE
+    if (payload.lineMessage && typeof pushMessageToAllowedGroups === 'function') {
+      pushMessageToAllowedGroups(payload.lineMessage);
+    }
+
+    return { success: true, message: "บันทึกข้อมูลเข้าชีต " + thaiFullDate + " สำเร็จ (" + result.count + " คน)" };
 
   } catch (err) {
     // บันทึก Error ลง Audit
