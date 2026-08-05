@@ -517,7 +517,7 @@ function handleLineWebhook(requestData, e) {
 
         // --- 👷 หมวดคำสั่งทั่วไป & ลงเวลา ---
         const cancelResult = handleCancelCommands(commandText, userId, msg, globalReplyToken);
-        if (cancelResult !== null) return cancelResult;
+        if (cancelResult) return cancelResult;
         if (commandText.startsWith("เช็ครายงาน")) {
           if (typeof handleCheckReport === "function") handleCheckReport(commandText, userId, globalReplyToken);
           return ContentService.createTextOutput("OK");
