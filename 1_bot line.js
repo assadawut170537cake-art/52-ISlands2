@@ -516,20 +516,8 @@ function handleLineWebhook(requestData, e) {
         if (status === "OFF" && !isUserAdmin) return ContentService.createTextOutput("Ignored");
 
         // --- 👷 หมวดคำสั่งทั่วไป & ลงเวลา ---
-        if (commandText === "ยกเลิกรายการล่าสุด" || commandText === "ยกเลิกล่าสุด") {
-          if (typeof logAuditTrail === "function") logAuditTrail(userId, "USER_UNDO", msg, "UNDO_LAST", 1.0, "UNDO", "ผู้ใช้ขอยกเลิกรายการล่าสุด");
-          if (typeof handleUndoLastAction === "function") handleUndoLastAction(userId, globalReplyToken);
-          return ContentService.createTextOutput("OK");
-        }
-        if (commandText.startsWith("ยกเลิก") && commandText.length > 10 && !commandText.includes("/")) {
-          if (typeof handleUndoFromText === "function") handleUndoFromText(commandText.replace("ยกเลิก", "").trim(), globalReplyToken);
-          return ContentService.createTextOutput("OK");
-        }
-        if (commandText.startsWith("ยกเลิก") && commandText.includes("/")) {
-          const p = commandText.replace("ยกเลิก", "").trim().split(" ");
-          if (p.length >= 2 && typeof undoLastEntry === "function" && typeof reply === "function") reply(globalReplyToken, undoLastEntry(p[0], p[1]));
-          return ContentService.createTextOutput("OK");
-        }
+        const cancelResult = handleCancelCommands(commandText, userId, msg, globalReplyToken);
+        if (cancelResult !== null) return cancelResult;
         if (commandText.startsWith("เช็ครายงาน")) {
           if (typeof handleCheckReport === "function") handleCheckReport(commandText, userId, globalReplyToken);
           return ContentService.createTextOutput("OK");
@@ -958,3 +946,69 @@ function handleTestMode(content, replyToken) {
 // ⚠️ [CONSOLIDATED] isAdmin() ถูกรวมไปไว้ที่ Config.gs เป็นแหล่งเดียว (Single Source of Truth)
 // ป้องกัน GAS "last wins" override ที่ทำให้ลอจิกตรวจสอบ Admin ทำงานผิดพลาด
 // force push
+
+/**
+ * ฟังก์ชันคัดกรองและจัดการคำสั่งยกเลิกรายการ (Undo Commands)
+ * @param {string} commandText - ข้อความคำสั่งที่ผู้ใช้ส่งมา
+ * @param {string} userId - ไอดีของผู้ใช้ (LINE UID)
+ * @param {Object} msg - อ็อบเจกต์ข้อความต้นฉบับจาก Webhook
+ * @param {string} globalReplyToken - โทเคนสำหรับตอบกลับข้อความ LINE
+ * @returns {Object|null} ContentService เพื่อตอบกลับ Webhook หรือ null หากไม่ใช่คำสั่งยกเลิก
+ */
+function handleCancelCommands(commandText, userId, msg, globalReplyToken) {
+  try {
+    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (ระบุตรงตัว) ---
+    if (commandText === "ยกเลิกรายการล่าสุด" || commandText === "ยกเลิกล่าสุด") {
+      if (typeof logAuditTrail === "function") {
+        logAuditTrail(userId, "USER_UNDO", msg, "UNDO_LAST", 1.0, "UNDO", "ผู้ใช้ขอยกเลิกรายการล่าสุด");
+      }
+      
+      if (typeof handleUndoLastAction === "function") {
+        handleUndoLastAction(userId, globalReplyToken);
+      } else {
+        if (typeof reply === "function") reply(globalReplyToken, "⚠️ ระบบยกเลิกรายการล่าสุดยังไม่พร้อมใช้งานครับ");
+      }
+      return ContentService.createTextOutput("OK");
+    }
+
+    // --- 2. เงื่อนไข: ยกเลิกด้วยข้อความบรรยาย (ความยาวเกิน 10 ตัวอักษร และต้องไม่มีเครื่องหมาย /) ---
+    if (commandText.startsWith("ยกเลิก") && commandText.length > 10 && !commandText.includes("/")) {
+      const targetText = commandText.replace("ยกเลิก", "").trim();
+      
+      if (typeof handleUndoFromText === "function") {
+        handleUndoFromText(targetText, globalReplyToken);
+      } else {
+        if (typeof reply === "function") reply(globalReplyToken, "⚠️ ระบบยกเลิกด้วยข้อความยังไม่พร้อมใช้งานครับ");
+      }
+      return ContentService.createTextOutput("OK");
+    }
+
+    // --- 3. เงื่อนไข: ยกเลิกด้วยรหัสหรือวันที่ (ต้องมีเครื่องหมาย /) ---
+    if (commandText.startsWith("ยกเลิก") && commandText.includes("/")) {
+      // ใช้ Regex (/\s+/) ในการ split เพื่อแก้ปัญหาผู้ใช้พิมพ์เว้นวรรคหลายช่องผิดพลาด
+      const params = commandText.replace("ยกเลิก", "").trim().split(/\s+/);
+      
+      if (params.length >= 2) {
+        if (typeof undoLastEntry === "function" && typeof reply === "function") {
+          const resultMsg = undoLastEntry(params[0], params[1]);
+          reply(globalReplyToken, resultMsg);
+        } else {
+          if (typeof reply === "function") reply(globalReplyToken, "⚠️ ฟังก์ชันยกเลิกด้วยวันที่และชื่อยังไม่พร้อมทำงานครับ");
+        }
+      } else {
+        if (typeof reply === "function") reply(globalReplyToken, "⚠️ รูปแบบคำสั่งไม่ถูกต้องครับ ตัวอย่างที่ถูกต้อง: ยกเลิก 5/8/69 กมลเทพ");
+      }
+      return ContentService.createTextOutput("OK");
+    }
+
+    // หากไม่เข้าเงื่อนไขใดๆ ของการยกเลิก ให้คืนค่า null เพื่อให้โค้ดหลักทำงานอื่นต่อไป
+    return null;
+
+  } catch (error) {
+    // ดักจับ Error ป้องกันระบบหยุดทำงานกลางคัน
+    if (typeof reply === "function") {
+      reply(globalReplyToken, "❌ เกิดข้อผิดพลาดในระบบยกเลิกข้อมูล: " + error.message);
+    }
+    return ContentService.createTextOutput("Error");
+  }
+}
