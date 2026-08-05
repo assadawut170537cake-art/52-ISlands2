@@ -67,64 +67,68 @@ function placeholderSpecialFunction() {
  * ฟังก์ชันสร้างโครงสร้างบอร์ดจัดระเบียบหน้ากระดาน Layout สั้นกระชับ (A - F)
  */
 function initializeDevopsWorkspace() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const fileList = getProjectFileList();
-  const maxRows = 2500;
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const fileList = getProjectFileList();
+    const maxRows = 2500;
 
-  let ws = ss.getSheetByName(SHEET_WORKSPACE);
-  if (!ws) ws = ss.insertSheet(SHEET_WORKSPACE, 0);
-  else {
-    ws.clear(); ws.clearFormats();
-    ws.getConditionalFormatRules().forEach(() => ws.setConditionalFormatRules([]));
+    let ws = ss.getSheetByName(SHEET_WORKSPACE);
+    if (!ws) ws = ss.insertSheet(SHEET_WORKSPACE, 0);
+    else {
+      ws.clear(); ws.clearFormats();
+      ws.getConditionalFormatRules().forEach(() => ws.setConditionalFormatRules([]));
+    }
+
+    const wsHeaders = [
+      ["ชื่อไฟล์", "ลำดับที่", "ชื่อฟังก์ชัน", "Function Dependency Mapping", "ข้อมูลที่ต้องการ", "รูปแบบข้อมูล", "คำอธิบายฟังก์ชันอัตโนมัติ", "วันที่ปรับแก้ล่าสุด"]
+    ];
+    ws.getRange("A1:H1").setValues(wsHeaders);
+
+    ws.getRange("A1:H1").setFontWeight("bold").setFontColor("#F8FAFC").setBackground("#0F172A").setHorizontalAlignment("center").setVerticalAlignment("middle");
+    ws.setRowHeight(1, 35); ws.setFrozenRows(1);
+    ws.getRange("A1:H" + maxRows).setFontFamily("Kanit");
+    ws.getRange("D2:D" + maxRows).setFontFamily("Courier New");
+    ws.getRange("D2:D" + maxRows).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+
+    let cl = ss.getSheetByName(SHEET_CHANGELOG);
+    if (!cl) cl = ss.insertSheet(SHEET_CHANGELOG, 1);
+    else { cl.clear(); cl.clearFormats(); }
+
+    const clHeaders = [
+      ["วัน-เวลาที่อัปเดต (Timestamp)", "เวอร์ชันระบบ (Version)", "เวอร์ชันปุ่มกด/Web App (Deploy)", "ฟังก์ชันที่เปลี่ยนแปลง (Changed)", "ฟังก์ชันเพิ่มใหม่ + คำอธิบายสั้นๆ", "สรุปคนทั่วไป + ตัวอย่างวิธีใช้", "โค้ดเต็มไฟล์หลังยืนยันเสถียรแล้ว (คลังสำรอง)", "ตรวจสอบความเสถียรระบบ (Dropdown)"]
+    ];
+    cl.getRange("A1:H1").setValues(clHeaders);
+    cl.getRange("A1:H1").setFontWeight("bold").setFontColor("#FFFFFF").setBackground("#1E293B").setHorizontalAlignment("center").setVerticalAlignment("middle");
+    cl.setRowHeight(1, 35); cl.setFrozenRows(1);
+    cl.getRange("A1:H500").setFontFamily("Kanit");
+    cl.getRange("G2:G500").setFontFamily("Courier New").setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+
+    const statusValidationRule = SpreadsheetApp.newDataValidation().requireValueInList(["🧪 กำลังทดสอบ", "🟢 เสถียรแล้ว (Lock Code)"], true).setAllowInvalid(false).build();
+    cl.getRange("H2:H500").setDataValidation(statusValidationRule);
+
+    const rules = [];
+    ws.setConditionalFormatRules(rules);
+
+    const fileValidationRule = SpreadsheetApp.newDataValidation().requireValueInList(fileList, true).setAllowInvalid(false).setHelpText("โปรดตรวจสอบรายชื่อไฟล์จริงในโครงการปัจจุบันเท่านั้น").build();
+    ws.getRange("A2:A" + maxRows).setDataValidation(fileValidationRule);
+
+    ws.setColumnWidth(1, 150); ws.setColumnWidth(2, 60); ws.setColumnWidth(3, 180); ws.setColumnWidth(4, 350); ws.setColumnWidth(5, 180); ws.setColumnWidth(6, 180); ws.setColumnWidth(7, 300); ws.setColumnWidth(8, 120);
+    cl.setColumnWidth(1, 160); cl.setColumnWidth(2, 100); cl.setColumnWidth(3, 150); cl.setColumnWidth(4, 150); cl.setColumnWidth(5, 230); cl.setColumnWidth(6, 260); cl.setColumnWidth(7, 400);
+
+    let settings = ss.getSheetByName(SHEET_SETTINGS);
+    if (!settings) settings = ss.insertSheet(SHEET_SETTINGS);
+    else settings.clear();
+    const settingHeaders = [["หมวดหมู่ระบบ", "คีย์ตั้งค่า (Key Config)", "ค่าปัจจุบัน (Value)", "วัน-เวลาที่สั่งแก้ไขล่าสุด", "ชื่อผู้สั่งแก้ไข (Admin)"]];
+    settings.getRange("A1:E1").setValues(settingHeaders);
+    settings.getRange("A1:E1").setFontWeight("bold").setFontColor("#FFFFFF").setBackground("#1E3A8A").setHorizontalAlignment("center");
+    settings.getRange(2, 1, 2, 5).setValues([["LINE_BOT", "SYSTEM_STATUS", "ON", "21/05/2026 00:35:00", "Admin_Nong"], ["SYSTEM_ERROR_MAPPING", "Cannot call SpreadsheetApp.getUi", "⚠️ ระบบรันเบื้องหลังกรุณาเปิด Logger แทน", "21/05/2026 00:35:00", "Admin_Nong"]]);
+    settings.setColumnWidth(1, 160); settings.setColumnWidth(2, 220); settings.setColumnWidth(3, 250); settings.setColumnWidth(4, 180); settings.setColumnWidth(5, 130);
+
+    ss.toast("⚙️ บอร์ด DevOps เวอร์ชั่น 11 พร้อมทำงาน!", "DevOps Engine", 4);
+  } catch (e) {
+    console.error("initializeDevopsWorkspace error: " + e.message);
+    if (typeof logAuditTrail === "function") logAuditTrail("SYSTEM_ERROR", "initializeDevopsWorkspace", "", "", 0, "ERROR", e.message);
   }
-
-  const wsHeaders = [
-    ["ชื่อไฟล์", "ลำดับที่", "ชื่อฟังก์ชัน", "Function Dependency Mapping", "ข้อมูลที่ต้องการ", "รูปแบบข้อมูล", "คำอธิบายฟังก์ชันอัตโนมัติ", "วันที่ปรับแก้ล่าสุด"]
-  ];
-  ws.getRange("A1:H1").setValues(wsHeaders);
-
-  ws.getRange("A1:H1").setFontWeight("bold").setFontColor("#F8FAFC").setBackground("#0F172A").setHorizontalAlignment("center").setVerticalAlignment("middle");
-  ws.setRowHeight(1, 35); ws.setFrozenRows(1);
-  ws.getRange("A1:H" + maxRows).setFontFamily("Kanit");
-  ws.getRange("D2:D" + maxRows).setFontFamily("Courier New");
-  ws.getRange("D2:D" + maxRows).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-
-  let cl = ss.getSheetByName(SHEET_CHANGELOG);
-  if (!cl) cl = ss.insertSheet(SHEET_CHANGELOG, 1);
-  else { cl.clear(); cl.clearFormats(); }
-
-  const clHeaders = [
-    ["วัน-เวลาที่อัปเดต (Timestamp)", "เวอร์ชันระบบ (Version)", "เวอร์ชันปุ่มกด/Web App (Deploy)", "ฟังก์ชันที่เปลี่ยนแปลง (Changed)", "ฟังก์ชันเพิ่มใหม่ + คำอธิบายสั้นๆ", "สรุปคนทั่วไป + ตัวอย่างวิธีใช้", "โค้ดเต็มไฟล์หลังยืนยันเสถียรแล้ว (คลังสำรอง)", "ตรวจสอบความเสถียรระบบ (Dropdown)"]
-  ];
-  cl.getRange("A1:H1").setValues(clHeaders);
-  cl.getRange("A1:H1").setFontWeight("bold").setFontColor("#FFFFFF").setBackground("#1E293B").setHorizontalAlignment("center").setVerticalAlignment("middle");
-  cl.setRowHeight(1, 35); cl.setFrozenRows(1);
-  cl.getRange("A1:H500").setFontFamily("Kanit");
-  cl.getRange("G2:G500").setFontFamily("Courier New").setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-
-  const statusValidationRule = SpreadsheetApp.newDataValidation().requireValueInList(["🧪 กำลังทดสอบ", "🟢 เสถียรแล้ว (Lock Code)"], true).setAllowInvalid(false).build();
-  cl.getRange("H2:H500").setDataValidation(statusValidationRule);
-
-  const rules = [];
-  // ยกเลิกกฎเปรียบเทียบโค้ดสีเดิมตามโครงสร้างใหม่
-  ws.setConditionalFormatRules(rules);
-
-  const fileValidationRule = SpreadsheetApp.newDataValidation().requireValueInList(fileList, true).setAllowInvalid(false).setHelpText("โปรดตรวจสอบรายชื่อไฟล์จริงในโครงการปัจจุบันเท่านั้น").build();
-  ws.getRange("A2:A" + maxRows).setDataValidation(fileValidationRule);
-
-  ws.setColumnWidth(1, 150); ws.setColumnWidth(2, 60); ws.setColumnWidth(3, 180); ws.setColumnWidth(4, 350); ws.setColumnWidth(5, 180); ws.setColumnWidth(6, 180); ws.setColumnWidth(7, 300); ws.setColumnWidth(8, 120);
-  cl.setColumnWidth(1, 160); cl.setColumnWidth(2, 100); cl.setColumnWidth(3, 150); cl.setColumnWidth(4, 150); cl.setColumnWidth(5, 230); cl.setColumnWidth(6, 260); cl.setColumnWidth(7, 400);
-
-  let settings = ss.getSheetByName(SHEET_SETTINGS);
-  if (!settings) settings = ss.insertSheet(SHEET_SETTINGS);
-  else settings.clear();
-  const settingHeaders = [["หมวดหมู่ระบบ", "คีย์ตั้งค่า (Key Config)", "ค่าปัจจุบัน (Value)", "วัน-เวลาที่สั่งแก้ไขล่าสุด", "ชื่อผู้สั่งแก้ไข (Admin)"]];
-  settings.getRange("A1:E1").setValues(settingHeaders);
-  settings.getRange("A1:E1").setFontWeight("bold").setFontColor("#FFFFFF").setBackground("#1E3A8A").setHorizontalAlignment("center");
-  settings.getRange(2, 1, 2, 5).setValues([["LINE_BOT", "SYSTEM_STATUS", "ON", "21/05/2026 00:35:00", "Admin_Nong"], ["SYSTEM_ERROR_MAPPING", "Cannot call SpreadsheetApp.getUi", "⚠️ ระบบรันเบื้องหลังกรุณาเปิด Logger แทน", "21/05/2026 00:35:00", "Admin_Nong"]]);
-  settings.setColumnWidth(1, 160); settings.setColumnWidth(2, 220); settings.setColumnWidth(3, 250); settings.setColumnWidth(4, 180); settings.setColumnWidth(5, 130);
-
-  ss.toast("⚙️ บอร์ด DevOps เวอร์ชั่น 11 พร้อมทำงาน!", "DevOps Engine", 4);
 }
 
 /**
