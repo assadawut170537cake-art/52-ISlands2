@@ -50,3 +50,6 @@
 
 ## รอบการตรวจสอบ: 12/7/2569 11:03:34
 - [ ] 3_SharedFunctions.js, .agents/AGENTS.md, changelog_update_20260712.md
+
+## รอบการตรวจสอบ: 5/8/2569 11:44:44
+- [ ] 13_AutoTimecardProcessor.js,2_WebApp.js,5_SupportMisc.js,1_bot line.js

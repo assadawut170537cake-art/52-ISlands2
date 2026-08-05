@@ -102,8 +102,37 @@ function handleWebAppGateway(payload) {
           JSON.stringify({ status: "OK", data: getDashboardSummary() })
         ).setMimeType(ContentService.MimeType.JSON);
 
+      case "GET_DROPDOWN_DATA":
+        return ContentService.createTextOutput(
+          JSON.stringify({ status: "OK", data: getWebAppDropdownData() })
+        ).setMimeType(ContentService.MimeType.JSON);
+
+      case "GET_ALL_EMPLOYEES":
+        return ContentService.createTextOutput(
+          JSON.stringify({ status: "OK", data: getAllEmployeesFromSheet() })
+        ).setMimeType(ContentService.MimeType.JSON);
+
+      case "ADD_EMPLOYEE":
+        const addRes = addNewEmployeeToSheet(data);
+        return ContentService.createTextOutput(
+          JSON.stringify({ status: addRes.success ? "OK" : "ERROR", message: addRes.message })
+        ).setMimeType(ContentService.MimeType.JSON);
+
+      case "UPDATE_EMPLOYEE_STATUS":
+        if (!data || !data.empCodeOrName || !data.newStatus) throw new Error("Missing empCodeOrName or newStatus");
+        const updateRes = updateEmployeeStatusInSheet(data.empCodeOrName, data.newStatus);
+        return ContentService.createTextOutput(
+          JSON.stringify({ status: updateRes.success ? "OK" : "ERROR", message: updateRes.message })
+        ).setMimeType(ContentService.MimeType.JSON);
+
+      case "GET_SYSTEM_CONFIGS":
+        return ContentService.createTextOutput(
+          JSON.stringify({ status: "OK", data: getSystemConfigsMap() })
+        ).setMimeType(ContentService.MimeType.JSON);
+
       case "SAVE_CONFIG":
-        if (!data || !data.key || !data.value) throw new Error("Missing key/value");
+      case "SAVE_SYSTEM_CONFIG":
+        if (!data || !data.key || data.value === undefined) throw new Error("Missing key/value");
         setDynamicConfig(data.key, data.value);
         return ContentService.createTextOutput(
           JSON.stringify({ status: "OK", message: `Saved: ${data.key} = ${data.value}` })
@@ -290,37 +319,56 @@ JSON format:
 
 // ============================================================
 // FUNCTION: getWebAppDropdownData
-// ดึงรายชื่อไซต์งาน ที่พัก และพนักงาน สำหรับ Dropdown ใน Dashboard V.7
+// ดึงรายชื่อไซต์งาน (จาก Col A หน้า DATA) ที่พัก (จาก Col B หน้า DATA) 
+// และรายชื่อพนักงาน สำหรับ Dropdown ใน Dashboard V.7
 // เรียกจาก SmartWorksiteDashboard: google.script.run.getWebAppDropdownData()
 // ============================================================
 function getWebAppDropdownData() {
   try {
-    const employees = getActiveEmployeesFromSheet();
+    const spreadsheetId = getDynamicConfig("EMPLOYEE_SHEET_ID") || "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk";
+    const ss = SpreadsheetApp.openById(spreadsheetId);
     
-    // ดึงรายชื่อไซต์งานจาก Config หรือสร้างจากข้อมูลพนักงาน
     const sites = [];
     const accommodations = [];
-    const staff = [];
     
-    const campSet = new Set();
-    employees.forEach(function(emp) {
-      if (emp.camp) campSet.add(emp.camp);
-      staff.push(emp.fullName || (emp.firstName + " " + emp.lastName));
-    });
-    
-    campSet.forEach(function(camp) {
-      accommodations.push(camp);
-    });
-    
-    // ดึง SITE_LIST จาก Dynamic Config ถ้ามี
-    var siteListConfig = getDynamicConfig("SITE_LIST") || "";
-    if (siteListConfig) {
-      siteListConfig.split(",").forEach(function(s) {
-        var trimmed = s.trim();
-        if (trimmed) sites.push(trimmed);
-      });
+    // ดึงรายชื่อไซต์งานและที่พักจาก Sheet "DATA"
+    const dataSheet = ss.getSheetByName("DATA");
+    if (dataSheet) {
+      const lastRow = dataSheet.getLastRow();
+      if (lastRow >= 2) {
+        const dataValues = dataSheet.getRange(2, 1, lastRow - 1, 2).getValues(); // Col A (Site), Col B (Camp)
+        dataValues.forEach(function(row) {
+          const s = (row[0] || "").toString().trim();
+          const c = (row[1] || "").toString().trim();
+          if (s && !sites.includes(s)) sites.push(s);
+          if (c && !accommodations.includes(c)) accommodations.push(c);
+        });
+      }
     }
     
+    // Fallback สำหรับ Sites จาก Dynamic Config ถ้า Sheet DATA ว่าง
+    if (sites.length === 0) {
+      const siteListConfig = getDynamicConfig("SITE_LIST") || "";
+      if (siteListConfig) {
+        siteListConfig.split(",").forEach(function(s) {
+          const trimmed = s.trim();
+          if (trimmed && !sites.includes(trimmed)) sites.push(trimmed);
+        });
+      }
+    }
+    
+    const employees = getActiveEmployeesFromSheet();
+    const staff = employees.map(function(emp) {
+      return emp.fullName || (emp.firstName + " " + emp.lastName);
+    });
+    
+    // เติม Accommodations จากข้อมูลพนักงานเพิ่มเติม
+    employees.forEach(function(emp) {
+      if (emp.camp && !accommodations.includes(emp.camp)) {
+        accommodations.push(emp.camp);
+      }
+    });
+
     return {
       success: true,
       sites: sites,
@@ -330,6 +378,93 @@ function getWebAppDropdownData() {
   } catch (err) {
     logError("getWebAppDropdownData", err.message, "");
     return { success: false, sites: [], staff: [], accommodations: [] };
+  }
+}
+
+// ============================================================
+// FUNCTION: addNewEmployeeToSheet
+// เพิ่มพนักงานใหม่ลง Sheet "รายชื่อพนักงาน" (สำหรับ Admin)
+// ============================================================
+function addNewEmployeeToSheet(empData) {
+  try {
+    const spreadsheetId = getDynamicConfig("EMPLOYEE_SHEET_ID") || "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk";
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = ss.getSheetByName("รายชื่อพนักงาน");
+    if (!sheet) return { success: false, message: "ไม่พบ Sheet รายชื่อพนักงาน" };
+
+    const prefix = (empData.prefix || "นาย").trim();
+    const firstName = (empData.firstName || "").trim();
+    const lastName = (empData.lastName || "").trim();
+    const fullName = empData.fullName || (prefix + " " + firstName + " " + lastName).trim();
+    const position = (empData.position || "ช่างทั่วไป").trim();
+    const camp = (empData.camp || "สาทร").trim();
+    const status = (empData.status || "ปกติ").trim();
+    const code = (empData.code || "").toString().trim();
+
+    if (!firstName) return { success: false, message: "กรุณาระบุชื่อพนักงาน" };
+
+    const newRow = [
+      "",         // Col A: Prefix / Index
+      prefix,     // Col B: Prefix
+      firstName,  // Col C: First Name
+      lastName,   // Col D: Last Name
+      fullName,   // Col E: Full Name
+      "",         // Col F
+      "",         // Col G
+      position,   // Col H: Position
+      "",         // Col I
+      camp,       // Col J: Camp/Residence
+      status,     // Col K: Status
+      "",         // Col L
+      "",         // Col M
+      code        // Col N: Employee Code (5 digits)
+    ];
+
+    sheet.appendRow(newRow);
+    return { success: true, message: `เพิ่มพนักงาน ${fullName} สำเร็จ` };
+  } catch (err) {
+    logError("addNewEmployeeToSheet", err.message, "");
+    return { success: false, message: "เกิดข้อผิดพลาด: " + err.message };
+  }
+}
+
+// ============================================================
+// FUNCTION: updateEmployeeStatusInSheet
+// อัปเดตสถานะพนักงาน (ปกติ / ลาออก / พักงาน) ใน Col K
+// ============================================================
+function updateEmployeeStatusInSheet(empCodeOrName, newStatus) {
+  try {
+    const spreadsheetId = getDynamicConfig("EMPLOYEE_SHEET_ID") || "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk";
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = ss.getSheetByName("รายชื่อพนักงาน");
+    if (!sheet) return { success: false, message: "ไม่พบ Sheet รายชื่อพนักงาน" };
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { success: false, message: "ไม่มีข้อมูลพนักงาน" };
+
+    const data = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+    let targetRowIndex = -1;
+
+    const searchTerm = empCodeOrName.toString().trim().toLowerCase();
+
+    for (let i = 0; i < data.length; i++) {
+      const fullName = (data[i][4] || "").toString().trim().toLowerCase(); // Col E
+      const code = (data[i][13] || "").toString().trim().toLowerCase();     // Col N
+      if (code === searchTerm || fullName.includes(searchTerm)) {
+        targetRowIndex = i + 2; // Rows are 1-indexed, starting from row 2
+        break;
+      }
+    }
+
+    if (targetRowIndex === -1) {
+      return { success: false, message: "ไม่พบรายชื่อพนักงานที่ระบุ" };
+    }
+
+    sheet.getRange(targetRowIndex, 11).setValue(newStatus); // Col K is column 11
+    return { success: true, message: `อัปเดตสถานะเป็น '${newStatus}' สำเร็จ` };
+  } catch (err) {
+    logError("updateEmployeeStatusInSheet", err.message, "");
+    return { success: false, message: "เกิดข้อผิดพลาด: " + err.message };
   }
 }
 
@@ -425,6 +560,63 @@ function getDashboardSummary() {
     };
   } catch (err) {
     return { error: err.message };
+  }
+}
+
+// ============================================================
+// FUNCTION: getAllEmployeesFromSheet
+// ดึงข้อมูลพนักงานทั้งหมด (รวมทั้ง "ปกติ", "ลาออก", "พักงาน")
+// สำหรับแสดงผลในหน้าจัดการพนักงาน (Staff Data)
+// ============================================================
+function getAllEmployeesFromSheet() {
+  try {
+    const spreadsheetId = getDynamicConfig("EMPLOYEE_SHEET_ID") || "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk";
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const sheet = ss.getSheetByName("รายชื่อพนักงาน");
+    if (!sheet) return [];
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+
+    const data = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+
+    return data
+      .map(row => ({
+        prefix:    (row[1]  || "").toString().trim(), // Column B
+        firstName: (row[2]  || "").toString().trim(), // Column C
+        lastName:  (row[3]  || "").toString().trim(), // Column D
+        fullName:  (row[4]  || "").toString().trim(), // Column E
+        position:  (row[7]  || "").toString().trim(), // Column H
+        camp:      (row[9]  || "").toString().trim(), // Column J
+        status:    (row[10] || "").toString().trim() || "ปกติ", // Column K
+        code:      (row[13] || "").toString().trim(), // Column N
+      }))
+      .filter(emp => emp.firstName || emp.fullName); // กรองแถวว่าง
+
+  } catch (err) {
+    logError("getAllEmployeesFromSheet", err.message, "");
+    return [];
+  }
+}
+
+// ============================================================
+// FUNCTION: getSystemConfigsMap
+// ดึงค่าการตั้งค่าระบบจาก ScriptProperties ทั้งหมด
+// ============================================================
+function getSystemConfigsMap() {
+  try {
+    const props = PropertiesService.getScriptProperties().getProperties();
+    return {
+      BACKDATE_LIMIT: props.BACKDATE_LIMIT || "2",
+      SYSTEM_STATUS: props.SYSTEM_STATUS || "ON",
+      EMPLOYEE_SHEET_ID: props.EMPLOYEE_SHEET_ID || "1SSbgN9lmObsAyrqjykFttqNbCVDd3yhUq47yT8Z_Agk",
+      SITE_LIST: props.SITE_LIST || "",
+      QUOTA_CHECK_INTERVAL_MINUTES: props.QUOTA_CHECK_INTERVAL_MINUTES || "15",
+      QUOTA_THRESHOLD: props.QUOTA_THRESHOLD || "0.9"
+    };
+  } catch (err) {
+    logError("getSystemConfigsMap", err.message, "");
+    return {};
   }
 }
 
