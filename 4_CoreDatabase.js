@@ -81,7 +81,8 @@ function writeToDailySheetBatch(data, userId, fileId) {
         block[rowIndex][CORE_DB.COL_ACCOM - 1] = empAccom;
       }
       
-      const otHrs = calculateAndTimeEntryFromValues(block, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date);
+      const isContOT = data.is_continuous_ot || data.isContinuousOT || false;
+      const otHrs = calculateAndTimeEntryFromValues(block, rowIndex, data.time_start, data.time_end, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date, isContOT);
       
       if (otHrs > 0) { 
          block[rowIndex][8] = data.default_site; 
@@ -96,8 +97,8 @@ function writeToDailySheetBatch(data, userId, fileId) {
     }
   });
 
-    blockRange.setValues(block);
-    return { count: successCount, errors: errors };
+    sheet.getRange(startRow, 1, block.length, block[0].length).setValues(block);
+    return { success: successCount, total: data.employees.length, errors: errors };
   } catch (err) {
     if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "writeToDailySheetBatch", err.message);
     return { count: 0, errors: ["เกิดข้อผิดพลาดภายในระบบ: " + err.message] };
@@ -105,9 +106,9 @@ function writeToDailySheetBatch(data, userId, fileId) {
 }
 
 /**
- * คำนวณเวลาทำงานปกติและ OT ตามมาตรฐาน CORE_DB
+ * คำนวณชั่วโมงการทำงานและลงเวลาลงในอาร์เรย์สองมิติ (Memory Block) โดยตรงเพื่อลดการอ่านเขียน Sheet หลายรอบ
  */
-function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, recordDate) {
+function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, recordDate, isContinuousOT) {
   try {
     if (!eT || eT.toString().trim() === "") {
       block[rowIndex][CORE_DB.COL_NORMAL_HR - 1] = "";
@@ -143,7 +144,7 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
         }
     }
     
-    // [NEW] กฎใหม่: หักพักสำหรับ OT เช้าและเย็น (เริ่ม 16/07/2026)
+    // [NEW] กฎใหม่: หักพักสำหรับ OT เช้าและเย็น (เริ่ม 16/07/2026, ยกเว้นกรณี OT ต่อเนื่อง)
     let isNewOTRule = false;
     if (recordDate) {
         try {
@@ -175,7 +176,7 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
         // Evening OT Break (17:00 - 17:30)
         let eBreakStart = Math.max(s, 1020);
         let eBreakEnd = Math.min(e, 1050);
-        if (eBreakStart < eBreakEnd) {
+        if (eBreakStart < eBreakEnd && !isContinuousOT) {
             // หักพักเบรกเย็น 17:00 - 17:30 ของทุกคน โดยไม่มีเงื่อนไขเวลาเลิกงาน
             breakDuration += (eBreakEnd - eBreakStart);
         }

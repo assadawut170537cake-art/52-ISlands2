@@ -603,6 +603,9 @@ function handleClockIn(msg, userId, token) {
           }
         }
       }
+      if (data && typeof msg === "string" && (msg.includes("(OT ต่อเนื่อง)") || msg.includes("OT ต่อเนื่อง"))) {
+        data.is_continuous_ot = true;
+      }
     } catch (err) {
       logErrorToSheet(null, msg, "Error parsing message: " + err.message);
       reply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบครับ");

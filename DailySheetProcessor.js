@@ -120,10 +120,11 @@ function writeToDailySheet(data, userId, fileId) {
         const tOut = data.time_end || data.timeOut;
         
         if (tIn && tOut && !data.isOTDetailsOnly) {
+          const isContOT = data.is_continuous_ot || data.isContinuousOT || false;
           if (typeof calculateAndTimeEntryFromValues === 'function') {
-            calculatedOT = calculateAndTimeEntryFromValues(block, rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date);
+            calculatedOT = calculateAndTimeEntryFromValues(block, rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date, isContOT);
           } else if (typeof calculateAndTimeEntry === 'function') {
-            calculatedOT = calculateAndTimeEntry(sheet, startRow + rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date);
+            calculatedOT = calculateAndTimeEntry(sheet, startRow + rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date, isContOT);
           }
         } else if (data.otHours !== undefined) {
           let currentOT = parseFloat(block[rowIndex][colOtTotal - 1]) || 0;
