@@ -134,12 +134,17 @@ function parseComplexMessage(text) {
     if (!defaultSite) return null;
 
     let employees = [];
+    const otContPattern = /\(?\s*(?:OT|โอที|ot)\s*ต่อเนื่อง\s*\)?/gi;
     for (let i = 0; i < lines.length; i++) {
-      if (/^\d+\./.test(lines[i])) {
-        const parts = lines[i].split('/');
+      const lineStr = lines[i].trim();
+      // รองรับทั้งแบบมีตัวเลขนำหน้า (เช่น 1. อัษฎาวุธ/งานระบบ) และแบบไม่มีตัวเลขนำหน้า (เช่น อัษฎาวุธ/งานระบบ)
+      if (/^\d+\./.test(lineStr) || lineStr.includes('/')) {
+        const parts = lineStr.split('/');
         if (parts.length < 2) continue;
-        let rawName = parts[0].replace(/^\d+\./, "").trim();
-        let taskStr = parts[1].trim();
+        let rawName = parts[0].replace(/^\d+\./, "").replace(otContPattern, "").trim();
+        let taskStr = parts[1].replace(otContPattern, "").trim();
+        if (!rawName) continue;
+        
         let nameParts = rawName.split(/\s+/);
         let firstName = nameParts[0]; let lastName = nameParts.length > 1 ? nameParts[nameParts.length-1] : ""; 
         ["นาย","นาง","น.ส.","นส.","ด.ช.","ด.ญ."].forEach(p => { if (firstName.startsWith(p)) firstName = firstName.replace(p, ""); });
@@ -853,21 +858,10 @@ function createSupportSheets() {
 
 function sendLineNotify(message, imageBlob) {
   try {
-    const token = getDynamicConfig("LINE_NOTIFY_TOKEN");
-    if (!token) return; // หากยังไม่ได้ใส่ Token ให้ข้ามไป
-    
-    let payload = { message: message };
-    if (imageBlob) {
-      payload.imageFile = imageBlob;
-    }
-
-    const options = {
-      method: 'post',
-      payload: payload,
-      headers: { Authorization: 'Bearer ' + token },
-      muteHttpExceptions: true
-    };
-    UrlFetchApp.fetch('https://notify-api.line.me/api/notify', options);
+    // ⚠️ Deprecated Notice: บริการ LINE Notify (notify-api.line.me) ถูกปิดให้บริการโดย LINE Corporation แล้ว
+    // ระบบจะไม่ทำการส่ง HTTP Request ออกไป เพื่อป้องกัน Network Error และ Latency
+    console.log("sendLineNotify bypass: LINE Notify service has been terminated.");
+    return;
   } catch (e) {
     console.error("sendLineNotify error:", e.message);
   }
@@ -941,6 +935,196 @@ function logMessageHistory(userId, displayName, message) {
   } catch (e) {
     console.error("logMessageHistory error:", e.message);
   } finally {
+    lock.releaseLock();
+  }
+}
+
+// =================================================================
+// 📅 5. ระบบ Dynamic Monthly Sheet Routing & Exception Management
+// =================================================================
+
+/**
+ * คำนวณและคืนค่าชื่อเดือนภาษาไทยอย่างไดนามิก โดยยึดตามเขตเวลาประเทศไทย (GMT+7)
+ * บังคับใช้ Utilities.formatDate เพื่อป้องกันปัญหาการเลื่อมของวันที่ข้ามคืน (Overnight Date Shifting)
+ *
+ * @param {Date|string} [dateObj] - วัตถุวันที่ หรือ String วันที่ หากไม่ระบุจะใช้เวลาปัจจุบัน
+ * @return {string} ชื่อเดือนภาษาไทยเต็ม (เช่น "มกราคม", "สิงหาคม", "กันยายน")
+ */
+function getCurrentThaiMonth(dateObj) {
+  try {
+    const targetDate = dateObj ? new Date(dateObj) : new Date();
+    // ใช้นาฬิกาเขตเวลาประเทศไทย GMT+7 บังคับดึงเฉพาะตัวเลขเดือน (1 - 12)
+    const monthNum = parseInt(Utilities.formatDate(targetDate, "GMT+7", "M"), 10);
+    const thaiMonths = [
+      "มกราคม",
+      "กุมภาพันธ์",
+      "มีนาคม",
+      "เมษายน",
+      "พฤษภาคม",
+      "มิถุนายน",
+      "กรกฎาคม",
+      "สิงหาคม",
+      "กันยายน",
+      "ตุลาคม",
+      "พฤศจิกายน",
+      "ธันวาคม"
+    ];
+    return thaiMonths[monthNum - 1] || "มกราคม";
+  } catch (error) {
+    if (typeof logSystemError === "function") {
+      logSystemError("getCurrentThaiMonth", error);
+    } else {
+      console.error("getCurrentThaiMonth error: " + error.message);
+    }
+    return "มกราคม";
+  }
+}
+
+/**
+ * บันทึกข้อความขัดข้องของระบบลงใน Console และระบบล็อกเกอร์หลักอย่างปลอดภัย
+ *
+ * @param {string} functionName - ชื่อฟังก์ชันที่เกิดข้อผิดพลาด
+ * @param {Error|string} error - วัตถุ Error หรือข้อความแสดงข้อผิดพลาด
+ */
+function logSystemError(functionName, error) {
+  try {
+    const errorMsg = error && error.stack ? error.stack : (error ? error.toString() : "Unknown error");
+    console.error(`[SYSTEM ERROR] ในฟังก์ชัน ${functionName}: ${errorMsg}`);
+    
+    if (typeof logErrorToSheet === "function") {
+      logErrorToSheet(null, `Function: ${functionName}`, errorMsg);
+    } else if (typeof logError === "function") {
+      logError(functionName, errorMsg, "");
+    }
+  } catch (err) {
+    console.error("logSystemError fallback error: " + err.message);
+  }
+}
+
+/**
+ * บันทึกข้อมูลการลงเวลาพนักงานไปยังแผ่นงานประจำเดือนโดยอัตโนมัติ (Dynamic Monthly Sheet Routing)
+ * ตรวจสอบและสร้างแผ่นงานประจำเดือนให้อัตโนมัติหากยังไม่มี พร้อมป้องกัน Race Condition ด้วย LockService (Wait Time 15,000ms)
+ *
+ * @param {Object} data - วัตถุข้อมูลการลงเวลา (ประกอบด้วย date, site, employees ฯลฯ)
+ * @param {string} [fileId] - ไอดีสเปรดชีตเป้าหมาย หากไม่ระบุจะเปิดสเปรดชีตที่ทำงานอยู่ปัจจุบัน
+ * @return {Object} ผลลัพธ์การทำงาน { success: boolean, count: number, sheetName: string, message: string }
+ */
+function saveAttendance(data, fileId) {
+  const lock = LockService.getScriptLock();
+  try {
+    // 🛡️ บังคับขอ ScriptLock เพื่อป้องกันการบันทึกข้อมูลชนกัน (Wait Time: 15,000ms)
+    lock.waitLock(15000);
+  } catch (lockError) {
+    logSystemError("saveAttendance", "ไม่สามารถขอ LockService ได้ภายใน 15 วินาที: " + lockError.message);
+    return {
+      success: false,
+      count: 0,
+      sheetName: "",
+      message: "ระบบกำลังทำงานซ้อนกัน กรุณาลองใหม่อีกครั้ง"
+    };
+  }
+
+  try {
+    if (!data) {
+      throw new Error("ไม่มีข้อมูลการลงเวลา (Data is null or undefined)");
+    }
+
+    // 1. คำนวณชื่อแผ่นงานประจำเดือนแบบไดนามิกภาษาไทย
+    const recordDate = data.date ? new Date(data.date) : new Date();
+    const targetSheetName = getCurrentThaiMonth(recordDate);
+
+    // 2. เปิดสเปรดชีตเป้าหมาย
+    let ss;
+    if (fileId) {
+      ss = SpreadsheetApp.openById(fileId);
+    } else {
+      ss = SpreadsheetApp.getActiveSpreadsheet();
+    }
+
+    if (!ss) {
+      throw new Error("ไม่สามารถเปิดสเปรดชีตเป้าหมายได้");
+    }
+
+    // 3. ตรวจสอบและสร้างแผ่นงานประจำเดือนอัตโนมัติ (Automatic Sheet Creation)
+    let sheet = ss.getSheetByName(targetSheetName);
+    if (!sheet) {
+      sheet = ss.insertSheet(targetSheetName);
+      
+      // แทรกแถวหัวตารางมาตรฐาน (Standard Header Row)
+      const headers = [
+        "ลำดับ",
+        "วันที่",
+        "ชื่อ-นามสกุล",
+        "ไซต์งาน",
+        "ลักษณะงาน",
+        "ที่พัก",
+        "เวลาเข้า-ออก",
+        "ชั่วโมงปกติ",
+        "ชั่วโมง OT",
+        "บันทึกโดย",
+        "เวลาบันทึก"
+      ];
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length)
+        .setFontWeight("bold")
+        .setBackground("#4a86e8")
+        .setFontColor("#ffffff")
+        .setHorizontalAlignment("center");
+      sheet.setFrozenRows(1);
+    }
+
+    // 4. บันทึกรายชื่อพนักงานลงแผ่นงาน
+    let successCount = 0;
+    const timestamp = new Date();
+    const formattedTimestamp = Utilities.formatDate(timestamp, "GMT+7", "dd/MM/yyyy HH:mm:ss");
+    const dateStr = data.date || Utilities.formatDate(timestamp, "GMT+7", "dd/MM/yyyy");
+    const defaultSite = data.site || data.default_site || "ไม่ได้ระบุ";
+
+    if (data.employees && Array.isArray(data.employees) && data.employees.length > 0) {
+      data.employees.forEach((emp) => {
+        const empName = emp.firstname ? (emp.firstname + " " + (emp.lastname || "")).trim() : "ไม่ระบุชื่อ";
+        const empTask = emp.task || data.work || "ทำงาน";
+        const empAccom = emp.accom || data.default_Accom || "ไม่ได้ระบุ";
+        const timeStart = data.time_start || data.timeIn || "08.00";
+        const timeEnd = data.time_end || data.timeOut || "17.00";
+        const timeRange = `${timeStart}-${timeEnd}`;
+        const recordedBy = data.recordedBy || "LINE Bot System";
+
+        const rowData = [
+          sheet.getLastRow(),
+          dateStr,
+          empName,
+          defaultSite,
+          empTask,
+          empAccom,
+          timeRange,
+          8,
+          0,
+          recordedBy,
+          formattedTimestamp
+        ];
+        sheet.appendRow(rowData);
+        successCount++;
+      });
+    }
+
+    return {
+      success: true,
+      count: successCount,
+      sheetName: targetSheetName,
+      message: `บันทึกข้อมูลเรียบร้อยแล้ว ${successCount} รายการ ลงในแผ่นงาน "${targetSheetName}"`
+    };
+
+  } catch (error) {
+    logSystemError("saveAttendance", error);
+    return {
+      success: false,
+      count: 0,
+      sheetName: "",
+      message: "เกิดข้อผิดพลาดในระบบ: " + error.message
+    };
+  } finally {
+    // 🔓 ปลดล็อค LockService เสมอ
     lock.releaseLock();
   }
 }

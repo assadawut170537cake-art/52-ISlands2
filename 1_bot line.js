@@ -425,7 +425,7 @@ function handleLineWebhook(requestData, e) {
           pendingOTDetails
         );
 
-        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin) {
+        if (!isPostback && !hasHash && !hasPendingState && !isUserAdmin && !isEditMode) {
           return ContentService.createTextOutput("OK");
         }
 
@@ -1144,7 +1144,7 @@ function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
     const toMins = function(t) {
       if (!t) return 0;
       const parts = t.toString().replace('.', ':').split(':');
-      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts, 10) || 0);
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
     };
 
     const sMins = toMins(dataToProcess.time_start);
@@ -1169,59 +1169,11 @@ function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
 
     // ⚡ ตรวจจับคีย์เวิร์ด OT ต่อเนื่องและครอบคลุมภาษาไทย (โอทีต่อเนื่อง)
     const cleanMsgForOT = (dataToProcess.original_msg || "").replace(/\s+/g, '');
-    const isContinuousOT = dataToProcess.is_continuous_ot || /(OT|โอที)\s*ต่อเนื่อง/i.test(dataToProcess.original_msg || "") || cleanMsgForOT.includes("OTต่อเนื่อง") || cleanMsgForOT.includes("โอทีต่อเนื่อง") || cleanMsgForOT.includes("otต่อเนื่อง");
-
-    // หากระบุ "OTต่อเนื่อง" จะข้ามการส่งปุ่มถามซ้ำ และบันทึกข้อมูลลงตารางทันที
-    if (hasOT && !isContinuousOT) {
-      dataToProcess.checkStatus = check;
-      dataToProcess.targetFileId = targetFileId;
-
-      const cache = CacheService.getScriptCache();
-      cache.put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 300);
-
-      replyWithButtons(token, `ตรวจพบการทำ OT\n\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
-    } else {
-      finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
-    }
-  } catch (err) {
-    console.error("checkOTAndProceed Error: " + err.message);
-    emergencyReply(token, "❌ ขัดข้องระหว่างตรวจสอบโอที กรุณาลองใหม่ครับ");
-  }
-}
-
-/**
- * 2. ฟังก์ชันตรวจสอบเงื่อนไข OT (ข้ามปุ่มถามเมื่อระบุ "OTต่อเนื่อง")
- */
-function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
-  try {
-    const toMins = function(t) {
-      if (!t) return 0;
-      const parts = t.toString().replace('.', ':').split(':');
-      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
-    };
-
-    const sMins = toMins(dataToProcess.time_start);
-    let eMins = toMins(dataToProcess.time_end);
-    let hasOT = false;
-
-    if (eMins > 0) {
-      if (eMins < sMins) eMins += 24 * 60;
-      let otMins = 0;
-      if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
-      if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
-
-      let hasNoonOt = false;
-      if (dataToProcess.employees && dataToProcess.employees.length > 0) {
-        dataToProcess.employees.forEach(function(emp) {
-          if (emp.has_ot_noon) hasNoonOt = true;
-        });
-      }
-      if (hasNoonOt) otMins += 60;
-      if (otMins > 0) hasOT = true;
-    }
-
-    // ⚡ ตรวจจับคีย์เวิร์ด OT ต่อเนื่อง
-    const isContinuousOT = dataToProcess.is_continuous_ot || /(OT|โอที)\s*ต่อเนื่อง/i.test(dataToProcess.original_msg || "");
+    const isContinuousOT = dataToProcess.is_continuous_ot || 
+                           /(OT|โอที)\s*ต่อเนื่อง/i.test(dataToProcess.original_msg || "") || 
+                           cleanMsgForOT.includes("OTต่อเนื่อง") || 
+                           cleanMsgForOT.includes("โอทีต่อเนื่อง") || 
+                           cleanMsgForOT.includes("otต่อเนื่อง");
 
     // หากระบุ "OTต่อเนื่อง" จะข้ามการส่งปุ่มถามซ้ำ และบันทึกข้อมูลลงตารางทันที
     if (hasOT && !isContinuousOT) {
@@ -1586,10 +1538,11 @@ function handleTestMode(content, replyToken) {
  */
 function handleCancelCommands(commandText, userId, msg, globalReplyToken, groupId) {
   try {
-    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (ระบุตรงตัว) ---
+    const cleanCmd = (commandText || "").replace(/^#/, "").trim();
+    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (รองรับทั้ง #ยกเลิกล่าสุด, ยกเลิกล่าสุด, #ยกเลิกรายการล่าสุด) ---
     if (
-      commandText === "ยกเลิกรายการล่าสุด" ||
-      commandText === "ยกเลิกล่าสุด"
+      cleanCmd === "ยกเลิกรายการล่าสุด" ||
+      cleanCmd === "ยกเลิกล่าสุด"
     ) {
       if (typeof logAuditTrail === "function") {
         logAuditTrail(
