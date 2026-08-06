@@ -9,11 +9,19 @@
 function writeToDailySheet(data, userId, fileId) {
   try {
     if (!fileId) {
-      return { count: 0, errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"], accom: "ไม่ได้ระบุ", processedNames: [] };
+      return {
+        count: 0,
+        errors: ["ไม่พบลิงก์ไฟล์เดือนนี้"],
+        accom: "ไม่ได้ระบุ",
+        processedNames: [],
+      };
     }
 
     const ss = SpreadsheetApp.openById(fileId);
-    const sheetName = typeof parseThaiDate === 'function' ? parseThaiDate(data.date) : data.date;
+    const sheetName =
+      typeof parseThaiDate === "function"
+        ? parseThaiDate(data.date)
+        : data.date;
 
     // 🛠️ ค้นหาแท็บแผ่นงานแบบทนทานต่อช่องว่าง (Space-Tolerant Finder)
     let sheet = ss.getSheetByName(sheetName);
@@ -29,16 +37,29 @@ function writeToDailySheet(data, userId, fileId) {
     }
 
     if (!sheet) {
-      return { count: 0, errors: ["ไม่พบหน้าวันที่: " + sheetName], accom: "ไม่ได้ระบุ", processedNames: [] };
+      return {
+        count: 0,
+        errors: ["ไม่พบหน้าวันที่: " + sheetName],
+        accom: "ไม่ได้ระบุ",
+        processedNames: [],
+      };
     }
 
     // กำหนดค่าตำแหน่งแถวเริ่มต้นเริ่มต้นจากโครงสร้างคอนฟิก
-    const startRow = (typeof CORE_DB !== 'undefined' && CORE_DB.START_ROW) ? CORE_DB.START_ROW : 3;
+    const startRow =
+      typeof CORE_DB !== "undefined" && CORE_DB.START_ROW
+        ? CORE_DB.START_ROW
+        : 3;
     const lastRow = sheet.getLastRow();
     const numRows = Math.max(0, lastRow - startRow + 1);
-    
+
     if (numRows === 0) {
-      return { count: 0, errors: ["Sheet ว่างเปล่า ไม่มีรายชื่อพนักงานเลย"], accom: "ไม่ได้ระบุ", processedNames: [] };
+      return {
+        count: 0,
+        errors: ["Sheet ว่างเปล่า ไม่มีรายชื่อพนักงานเลย"],
+        accom: "ไม่ได้ระบุ",
+        processedNames: [],
+      };
     }
 
     const fullCols = 20;
@@ -51,27 +72,50 @@ function writeToDailySheet(data, userId, fileId) {
     let replyAccom = "ไม่ได้ระบุ";
 
     // ดึงค่ามาตรฐานคอนฟิกสำหรับระบุพิกัดคอลัมน์ (Fallback โครงสร้างตัวแปรทั้งสองเวอร์ชัน)
-    const colNameCheck = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_NAME_CHECK : 4;
-    const colSite = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_SITE : (typeof GLOBAL_CONFIG !== 'undefined' ? GLOBAL_CONFIG.COL_SITE : 5);
-    const colWork = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_WORK : (typeof GLOBAL_CONFIG !== 'undefined' ? GLOBAL_CONFIG.COL_WORK : 6);
-    const colAccom = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_ACCOM : (typeof GLOBAL_CONFIG !== 'undefined' ? GLOBAL_CONFIG.COL_ACCOM : 7);
-    const colOtTotal = (typeof CORE_DB !== 'undefined') ? CORE_DB.COL_OT_TOTAL : 11;
+    const colNameCheck =
+      typeof CORE_DB !== "undefined" ? CORE_DB.COL_NAME_CHECK : 4;
+    const colSite =
+      typeof CORE_DB !== "undefined"
+        ? CORE_DB.COL_SITE
+        : typeof GLOBAL_CONFIG !== "undefined"
+          ? GLOBAL_CONFIG.COL_SITE
+          : 5;
+    const colWork =
+      typeof CORE_DB !== "undefined"
+        ? CORE_DB.COL_WORK
+        : typeof GLOBAL_CONFIG !== "undefined"
+          ? GLOBAL_CONFIG.COL_WORK
+          : 6;
+    const colAccom =
+      typeof CORE_DB !== "undefined"
+        ? CORE_DB.COL_ACCOM
+        : typeof GLOBAL_CONFIG !== "undefined"
+          ? GLOBAL_CONFIG.COL_ACCOM
+          : 7;
+    const colOtTotal =
+      typeof CORE_DB !== "undefined" ? CORE_DB.COL_OT_TOTAL : 11;
 
     // ดึงระดับความแม่นยำในการค้นหาชื่อ (Fuzzy Threshold)
     let fuzzyThreshold = 0.85;
-    if (typeof getDynamicConfig === 'function') {
+    if (typeof getDynamicConfig === "function") {
       const configValue = getDynamicConfig("FUZZY_THRESHOLD");
       if (configValue) fuzzyThreshold = parseFloat(configValue);
     }
 
-    data.employees.forEach(emp => {
-      const inputName = typeof normalize === 'function' ? normalize(emp.firstname) : emp.firstname;
+    data.employees.forEach((emp) => {
+      const inputName =
+        typeof normalize === "function"
+          ? normalize(emp.firstname)
+          : emp.firstname;
       let rowIndex = -1;
       let bestScore = 0;
 
       // 🔍 ขั้นตอนที่ 1: ค้นหาด้วยระบบความแม่นยำ 100% (Exact Match) ก่อนเป็นอันดับแรก
       for (let i = 0; i < block.length; i++) {
-        const sheetNameValue = typeof normalize === 'function' ? normalize(block[i][colNameCheck - 1]) : block[i][colNameCheck - 1];
+        const sheetNameValue =
+          typeof normalize === "function"
+            ? normalize(block[i][colNameCheck - 1])
+            : block[i][colNameCheck - 1];
         if (sheetNameValue === inputName) {
           rowIndex = i;
           bestScore = 1.0;
@@ -80,9 +124,12 @@ function writeToDailySheet(data, userId, fileId) {
       }
 
       // 🔮 ขั้นตอนที่ 2: ระบบตรวจจับด้วย Fuzzy Logic ทำงานเมื่อไม่พบชื่อตรงเป๊ะ
-      if (rowIndex === -1 && typeof getStringSimilarity === 'function') {
+      if (rowIndex === -1 && typeof getStringSimilarity === "function") {
         for (let i = 0; i < block.length; i++) {
-          const sheetNameValue = typeof normalize === 'function' ? normalize(block[i][colNameCheck - 1]) : block[i][colNameCheck - 1];
+          const sheetNameValue =
+            typeof normalize === "function"
+              ? normalize(block[i][colNameCheck - 1])
+              : block[i][colNameCheck - 1];
           if (!sheetNameValue) continue;
 
           const score = getStringSimilarity(inputName, sheetNameValue);
@@ -118,13 +165,34 @@ function writeToDailySheet(data, userId, fileId) {
         let calculatedOT = 0;
         const tIn = data.time_start || data.timeIn;
         const tOut = data.time_end || data.timeOut;
-        
+
         if (tIn && tOut && !data.isOTDetailsOnly) {
-          const isContOT = data.is_continuous_ot || data.isContinuousOT || false;
-          if (typeof calculateAndTimeEntryFromValues === 'function') {
-            calculatedOT = calculateAndTimeEntryFromValues(block, rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date, isContOT);
-          } else if (typeof calculateAndTimeEntry === 'function') {
-            calculatedOT = calculateAndTimeEntry(sheet, startRow + rowIndex, tIn, tOut, emp.has_ot_noon, emp.ot_noon_in, emp.ot_noon_out, data.date, isContOT);
+          const isContOT =
+            data.is_continuous_ot || data.isContinuousOT || false;
+          if (typeof calculateAndTimeEntryFromValues === "function") {
+            calculatedOT = calculateAndTimeEntryFromValues(
+              block,
+              rowIndex,
+              tIn,
+              tOut,
+              emp.has_ot_noon,
+              emp.ot_noon_in,
+              emp.ot_noon_out,
+              data.date,
+              isContOT,
+            );
+          } else if (typeof calculateAndTimeEntry === "function") {
+            calculatedOT = calculateAndTimeEntry(
+              sheet,
+              startRow + rowIndex,
+              tIn,
+              tOut,
+              emp.has_ot_noon,
+              emp.ot_noon_in,
+              emp.ot_noon_out,
+              data.date,
+              isContOT,
+            );
           }
         } else if (data.otHours !== undefined) {
           let currentOT = parseFloat(block[rowIndex][colOtTotal - 1]) || 0;
@@ -134,8 +202,15 @@ function writeToDailySheet(data, userId, fileId) {
         }
 
         // ซิงค์บันทึกประวัติการอัปเดตลงในโครงสร้าง State (ถ้ามี)
-        if (typeof updateEmpRecordInState === 'function') {
-          updateEmpRecordInState(emp.firstname, targetSite, targetWork, data.timeIn, data.timeOut, calculatedOT);
+        if (typeof updateEmpRecordInState === "function") {
+          updateEmpRecordInState(
+            emp.firstname,
+            targetSite,
+            targetWork,
+            data.timeIn,
+            data.timeOut,
+            calculatedOT,
+          );
         }
 
         successCount++;
@@ -148,25 +223,43 @@ function writeToDailySheet(data, userId, fileId) {
     // เขียนข้อมูลชุดใหญ่กลับลงหน้าชีตเพียงครั้งเดียวเพื่อประสิทธิภาพสูงสุด
     if (successCount > 0) {
       blockRange.setValues(block);
-      
+
       if (userId) {
         try {
           const props = PropertiesService.getScriptProperties();
-          const lastEntryData = JSON.stringify({ date: data.date, names: processedNames });
+          const lastEntryData = JSON.stringify({
+            date: data.date,
+            names: processedNames,
+          });
           props.setProperty(`LAST_ENTRY_${userId}`, lastEntryData);
           if (data.groupId) {
             props.setProperty(`LAST_ENTRY_${data.groupId}`, lastEntryData);
           }
         } catch (propertyError) {
-          console.warn("ไม่สามารถบันทึก Properties ล่าสุดได้: " + propertyError);
+          console.warn(
+            "ไม่สามารถบันทึก Properties ล่าสุดได้: " + propertyError,
+          );
         }
       }
     }
 
-    return { count: successCount, errors: errors, accom: replyAccom, processedNames: processedNames, spreadsheet: ss };
-
+    return {
+      count: successCount,
+      errors: errors,
+      accom: replyAccom,
+      processedNames: processedNames,
+      spreadsheet: ss,
+    };
   } catch (globalError) {
-    console.error("เกิดข้อผิดพลาดร้ายแรงในฟังก์ชัน writeToDailySheet: " + globalError.stack);
-    return { count: 0, errors: ["ระบบขัดข้องภายใน: " + globalError.toString()], accom: "ไม่ได้ระบุ", processedNames: [], spreadsheet: null };
+    console.error(
+      "เกิดข้อผิดพลาดร้ายแรงในฟังก์ชัน writeToDailySheet: " + globalError.stack,
+    );
+    return {
+      count: 0,
+      errors: ["ระบบขัดข้องภายใน: " + globalError.toString()],
+      accom: "ไม่ได้ระบุ",
+      processedNames: [],
+      spreadsheet: null,
+    };
   }
 }

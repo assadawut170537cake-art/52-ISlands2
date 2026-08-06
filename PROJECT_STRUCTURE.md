@@ -46,7 +46,7 @@
   - `3_BigQueryLogger.js` / `5_CloudLoggingService.js` (Audit Trail)
 - **การประมวลผลด้วย AI (AI Fallback)**: `7_AI_Core.js` (สกัดและคืนสภาพฟังก์ชันจาก JARVIS ให้โปรเจกต์หลักทำงานได้แบบ Standalone)
 - **หน้าจอ Dashboard (Frontend HTML)**: `index.html`, `SmartWorksiteDashboard.html`, `DevOps_Dashboard.html`, `System_Settings.html`, ฯลฯ
-- **ประวัติการแก้ไข (Changelog)**: `changelog_code_review.md`, `changelog_project_isolation.md`, `changelog_dashboard_fix_and_isolation_alert.md`, `changelog_restore_ai_fallback.md`, `changelog_update_agents_rules.md`, `changelog_update_20260712.md`, `changelog_auto_timecard_and_line_notifications.md`, `changelog_undo_last_action_group_fix.md`
+- **ประวัติการแก้ไข (Changelog)**: `changelog_code_review.md`, `changelog_project_isolation.md`, `changelog_dashboard_fix_and_isolation_alert.md`, `changelog_restore_ai_fallback.md`, `changelog_update_agents_rules.md`, `changelog_update_20260712.md`, `changelog_auto_timecard_and_line_notifications.md`, `changelog_undo_last_action_group_fix.md`, `changelog_line_bot_fixes_and_pdf_export_20260806.md`
 - **การปรับปรุงล่าสุด (August 2026)**:
   - แก้ไขระบบ `#ยกเลิกล่าสุด` ใน LINE Group โดยส่ง `groupId` ลงไปเก็บ Cache ทั้ง 2 คีย์ (`LAST_ENTRY_${userId}` และ `LAST_ENTRY_${groupId}`)
   - แก้ไขลอจิก `OTต่อเนื่อง` ป้องกันการบังคับเริ่ม OT เย็นที่ 17:30 น. เพื่อคำนวณชั่วโมง OT ได้เต็มจำนวน 100%
