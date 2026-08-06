@@ -156,24 +156,17 @@ function parseComplexMessage(text) {
         employees.push({ firstname: firstName, lastname: lastName, task: taskStr, accom: currentAccom, has_ot_noon: empHasOt, ot_noon_in: eOtIn, ot_noon_out: eOtOut });
       }
     }
-    const isContinuousOT = /(?:|\()OT\s*ต่อเนื่อง(?:\)|)/i.test(text) || text.includes("(OT ต่อเนื่อง)") || text.includes("OT ต่อเนื่อง");
+    
+    // 🟢 ตรวจจับคำว่า (โอทีต่อเนื่อง) โดยการลบช่องว่างทิ้งก่อนค้นหาเพื่อความรัดกุม 100%
+    const cleanForOT = text.replace(/\s+/g, '');
+    const isContinuousOT = cleanForOT.includes("OTต่อเนื่อง") || cleanForOT.includes("โอทีต่อเนื่อง") || cleanForOT.includes("otต่อเนื่อง");
+    
     return { "date": dateStr, "default_site": defaultSite, "default_Accom": currentAccom, "time_start": timeStart, "time_end": timeEnd, "expected_count": expectedCount, "has_ot_noon": hasOtNoon, "ot_noon_in": otNoonIn, "ot_noon_out": otNoonOut, "is_continuous_ot": isContinuousOT, "employees": employees };
   } catch (e) { return null; }
 }
 
-
-
 /**
  * คำนวณเวลาทำงานและหักเวลาพักอัตโนมัติ (Automated Break Deduction)
- * @param {Object} sheet - Object ของแผ่นงาน
- * @param {number} row - แถวที่ต้องการอัปเดตข้อมูล
- * @param {string|number} sT - เวลาเข้างาน (เช่น "08.00")
- * @param {string|number} eT - เวลาออกงาน (เช่น "17.00")
- * @param {boolean} isN - มีการทำ OT เที่ยงหรือไม่
- * @param {string} nI - เวลาเข้า OT เที่ยง
- * @param {string} nO - เวลาออก OT เที่ยง
- * @param {string} recordDate - วันที่บันทึกข้อมูล (Format: DD/MM/YYYY) สำหรับเช็คเงื่อนไขกฎหมายใหม่
- * @return {number} - จำนวนชั่วโมง OT รวม
  */
 function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO, recordDate, isContinuousOT) {
   try {
@@ -195,7 +188,8 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO, recordDate, isCo
                 let m = parseInt(p[1], 10) || 0;
                 let y = parseInt(p[2], 10) || new Date().getFullYear();
                 if (y > 2500) y -= 543;
-                else if (y < 100) y += 2000;
+                else if (y >= 50 && y < 100) y = (2500 + y) - 543;
+                else if (y < 50) y += 2000;
                 
                 let curDate = new Date(y, m - 1, d);
                 let thresholdDate = new Date(2026, 6, 16); // 16 July 2026
@@ -234,19 +228,17 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO, recordDate, isCo
 
     // กฎใหม่: หักพักสำหรับ OT เช้าและเย็น (ยกเว้นกรณี OT ต่อเนื่อง)
     if (isNewOTRule) {
-        // Morning OT Break (07:30 - 08:00)
+        // Morning OT Break (07:30 - 08:00) 🟢 เพิ่ม Bypass OT เช้า
         let mBreakStart = Math.max(s, 450);
         let mBreakEnd = Math.min(e, 480);
-        if (mBreakStart < mBreakEnd) {
+        if (mBreakStart < mBreakEnd && !isContinuousOT) {
             breakDuration += (mBreakEnd - mBreakStart);
         }
 
-        // Evening OT Break (17:00 - 17:30)
+        // Evening OT Break (17:00 - 17:30) 🟢 Bypass OT เย็น (มีอยู่แล้ว)
         let eBreakStart = Math.max(s, 1020);
         let eBreakEnd = Math.min(e, 1050);
         if (eBreakStart < eBreakEnd && !isContinuousOT) {
-            // กฎหมาย: ทำโอทีไม่ถึง 2 ชม. (เลิกก่อน 19:00) ไม่ต้องหักพักเบรค
-            // ยกเว้นช่วง 16-31 ก.ค. หักทุกคน
             if (isTransitionPeriod || e >= 1140) {
                 breakDuration += (eBreakEnd - eBreakStart);
             }
@@ -327,7 +319,6 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO, recordDate, isCo
     return 0;
   }
 }
-
 // -----------------------------------------------------------------
 // 🛠️ 4. Helpers จัดการวันที่, ข้อผิดพลาด, และดึงข้อมูลช่าง
 // -----------------------------------------------------------------
@@ -439,9 +430,94 @@ function calculateRowOT(sheet, row) {
   return calculateAndTimeEntry(sheet, row, "08.00", "17.00", false, "", "");
 }
 
-function fixAllOTInSheet() { 
-  // ฟังก์ชันเผื่อใช้เรียกแก้ไขทั้งหน้าชีตในอนาคต
+/**
+ * หน้าที่การทำงาน: ฟังก์ชันซ่อมแซมและคำนวณ OT ย้อนหลังสำหรับทุกชีตในฐานข้อมูล
+ * พารามิเตอร์อินพุท: ไม่มี (None)
+ * ประเภทอ็อบเจกต์: -
+ * คืนค่า (Return): String - ข้อความแจ้งผลลัพธ์การทำงาน (SUCCESS หรือ ERROR)
+ */
+function fixAllOTInSheet() {
+  // บันทึก Log เมื่อฟังก์ชันถูกเรียกใช้ตามโครงสร้างเดิมที่ต้องการ
   Logger.log("ฟังก์ชันซ่อมแซม OT ถูกเรียกใช้");
+  
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (lockErr) {
+    console.error("Cannot get lock for fixAllOTInSheet");
+    return "ERROR: Cannot get lock";
+  }
+  
+  try {
+    const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
+    if (!dbId) return "ERROR: No DATABASE_ID found";
+    
+    const ss = SpreadsheetApp.openById(dbId);
+    const sheets = ss.getSheets();
+    let fixedCount = 0;
+    
+    sheets.forEach(sheet => {
+      const lastRow = sheet.getLastRow();
+      if (lastRow < 3) return; // ข้ามชีตที่ไม่มีข้อมูล
+      
+      const dataRange = sheet.getRange(3, 1, lastRow - 2, sheet.getLastColumn());
+      const block = dataRange.getValues();
+      let hasChanges = false;
+      
+      for (let i = 0; i < block.length; i++) {
+        const recordDateStr = block[i][CORE_DB.COL_DATE - 1];
+        if (!recordDateStr) continue;
+        
+        let p = String(recordDateStr).trim().split(/[\/\-]/);
+        if (p.length >= 3) {
+            let d = parseInt(p[0], 10) || 0;
+            let m = parseInt(p[1], 10) || 0;
+            let y = parseInt(p[2], 10) || new Date().getFullYear();
+            
+            if (y > 2500) y -= 543;
+            else if (y < 100) y += 2000;
+            
+            let curDate = new Date(y, m - 1, d);
+            let thresholdDate = new Date(2026, 7, 1); // 1 August 2026 (Month is 0-indexed)
+            
+            if (curDate >= thresholdDate) {
+                let tIn = block[i][CORE_DB.COL_TIME_IN - 1];
+                let tOut = block[i][CORE_DB.COL_TIME_OUT - 1];
+                
+                if (tIn && tOut) {
+                    // ดึงข้อมูล OT เที่ยงเดิม (ถ้ามี) มาเก็บไว้ก่อนล้างข้อมูล
+                    let nIn = block[i][CORE_DB.COL_OT_M_IN - 1 + 2]; // Noon In
+                    let nOut = block[i][CORE_DB.COL_OT_M_IN - 1 + 3]; // Noon Out
+                    let isN = (nIn && nOut) ? true : false;
+                    
+                    // ล้างยอดเดิมทั้งหมด (เพื่อให้ isAppendEveningOT เป็น false)
+                    block[i][CORE_DB.COL_NORMAL_HR - 1] = "";
+                    block[i][CORE_DB.COL_OT_TOTAL - 1] = "";
+                    for(let c=0; c<6; c++) block[i][CORE_DB.COL_OT_M_IN - 1 + c] = "";
+                    
+                    // รันคำนวณใหม่และทับลงไป
+                    calculateAndTimeEntryFromValues(block, i, tIn, tOut, isN, nIn, nOut, recordDateStr);
+                    hasChanges = true;
+                    fixedCount++;
+                }
+            }
+        }
+      }
+      
+      if (hasChanges) {
+          dataRange.setValues(block);
+      }
+    });
+    
+    Logger.log("ทำการแก้ไขข้อมูล OT ย้อนหลังสำเร็จ จำนวน: " + fixedCount + " แถว");
+    return "SUCCESS: Fixed " + fixedCount + " records";
+    
+  } catch (err) {
+    Logger.log("Error in fixAllOTInSheet: " + err.message);
+    return "ERROR: " + err.message;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // -----------------------------------------------------------------
@@ -869,89 +945,3 @@ function logMessageHistory(userId, displayName, message) {
   }
 }
 
-// =================================================================
-// 🔧 4. ระบบซ่อมแซมและปรับปรุงข้อมูลย้อนหลัง (Maintenance Tools)
-// =================================================================
-/**
- * @description สคริปต์สำหรับรันเพื่อคำนวณ OT ใหม่ทั้งหมดตั้งแต่วันที่ 1 ส.ค. 2026
- * สามารถสั่งรันได้จากหน้า Apps Script IDE
- */
-function fixAllOTInSheet() {
-  const lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(10000);
-  } catch (lockErr) {
-    console.error("Cannot get lock for fixAllOTInSheet");
-    return;
-  }
-  
-  try {
-    const dbId = getDynamicConfig("EXTERNAL_DATABASE_ID");
-    if (!dbId) return;
-    
-    const ss = SpreadsheetApp.openById(dbId);
-    const sheets = ss.getSheets();
-    let fixedCount = 0;
-    
-    sheets.forEach(sheet => {
-      const lastRow = sheet.getLastRow();
-      if (lastRow < 3) return; // ข้ามชีตที่ไม่มีข้อมูล
-      
-      const dataRange = sheet.getRange(3, 1, lastRow - 2, sheet.getLastColumn());
-      const block = dataRange.getValues();
-      let hasChanges = false;
-      
-      for (let i = 0; i < block.length; i++) {
-        const recordDateStr = block[i][CORE_DB.COL_DATE - 1];
-        if (!recordDateStr) continue;
-        
-        let p = String(recordDateStr).trim().split(/[\/\-]/);
-        if (p.length >= 3) {
-            let d = parseInt(p[0], 10) || 0;
-            let m = parseInt(p[1], 10) || 0;
-            let y = parseInt(p[2], 10) || new Date().getFullYear();
-            if (y > 2500) y -= 543;
-            else if (y < 100) y += 2000;
-            
-            let curDate = new Date(y, m - 1, d);
-            let thresholdDate = new Date(2026, 7, 1); // 1 August 2026 (Month is 0-indexed)
-            
-            if (curDate >= thresholdDate) {
-                let tIn = block[i][CORE_DB.COL_TIME_IN - 1];
-                let tOut = block[i][CORE_DB.COL_TIME_OUT - 1];
-                
-                if (tIn && tOut) {
-                    // ดึงข้อมูล OT เที่ยงเดิม (ถ้ามี) มาเก็บไว้ก่อนล้างข้อมูล
-                    let nIn = block[i][CORE_DB.COL_OT_M_IN - 1 + 2]; // Noon In
-                    let nOut = block[i][CORE_DB.COL_OT_M_IN - 1 + 3]; // Noon Out
-                    let isN = (nIn && nOut) ? true : false;
-                    
-                    // ล้างยอดเดิมทั้งหมด (เพื่อให้ isAppendEveningOT เป็น false)
-                    block[i][CORE_DB.COL_NORMAL_HR - 1] = "";
-                    block[i][CORE_DB.COL_OT_TOTAL - 1] = "";
-                    for(let c=0; c<6; c++) block[i][CORE_DB.COL_OT_M_IN - 1 + c] = "";
-                    
-                    // รันคำนวณใหม่และทับลงไป
-                    calculateAndTimeEntryFromValues(block, i, tIn, tOut, isN, nIn, nOut, recordDateStr);
-                    hasChanges = true;
-                    fixedCount++;
-                }
-            }
-        }
-      }
-      
-      if (hasChanges) {
-          dataRange.setValues(block);
-      }
-    });
-    
-    Logger.log("ทำการแก้ไขข้อมูล OT ย้อนหลังสำเร็จ จำนวน: " + fixedCount + " แถว");
-    return "SUCCESS: Fixed " + fixedCount + " records";
-    
-  } catch (err) {
-    Logger.log("Error in fixAllOTInSheet: " + err.message);
-    return "ERROR: " + err.message;
-  } finally {
-    lock.releaseLock();
-  }
-}

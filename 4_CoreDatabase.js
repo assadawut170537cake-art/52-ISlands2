@@ -154,7 +154,8 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
                 let m = parseInt(p[1], 10) || 0;
                 let y = parseInt(p[2], 10) || new Date().getFullYear();
                 if (y > 2500) y -= 543;
-                else if (y < 100) y += 2000;
+                else if (y >= 50 && y < 100) y = (2500 + y) - 543;
+                else if (y < 50) y += 2000;
                 
                 let curDate = new Date(y, m - 1, d);
                 let thresholdDate = new Date(2026, 6, 16); // 16 July 2026
@@ -242,7 +243,7 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
         // 2.3 ถ้ายังมี OT เหลือ ให้ไปลงช่อง OT เย็น
         if (remainingOt > 0) {
             let otEIn = 0;
-            if (isNewOTRule && e > 1050) {
+            if (isNewOTRule && !isContinuousOT && e > 1050) {
                 otEIn = Math.max(1050, e - remainingOt);
             } else if (!isNewOTRule && e > 1020) {
                 otEIn = Math.max(1020, e - remainingOt);

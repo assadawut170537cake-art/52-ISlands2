@@ -904,7 +904,8 @@ function handleLineWebhook(requestData, e) {
               "พนักงานส่งข้อความบันทึกเวลารูปแบบข้อความทั่วไป",
             );
           if (typeof handleClockIn === "function")
-            handleClockIn(msg, userId, globalReplyToken);
+            // 🟢 ส่งค่า isEditMode และ groupId แนบไปด้วยเพื่อให้ฟังก์ชันบันทึกและยกเลิกทำได้อย่างถูกต้อง
+            handleClockIn(msg, userId, globalReplyToken, isEditMode, groupId);
           return ContentService.createTextOutput("OK");
         }
 
@@ -948,38 +949,48 @@ function handleLineWebhook(requestData, e) {
   return ContentService.createTextOutput("OK");
 }
 
-function handleClockIn(msg, userId, token) {
-  // 🚨 ถูกล็อกมาก่อนแล้วใน doPost(e) ไม่จำเป็นต้องล็อกซ้ำ ป้องกัน Deadlock
+/**
+ * หน้าที่การทำงาน: ฟังก์ชันรับข้อความลงเวลา ประมวลผลลอจิกทั้งหมด (โหมดแก้ไข, OT ต่อเนื่อง, ดึงรูปจาก Cache, ตรวจสอบ Admin)
+ * @param {string} msg - ข้อความที่ผู้ใช้ส่งเข้ามา
+ * @param {string} userId - LINE User ID ของผู้ส่ง
+ * @param {string} token - Reply Token สำหรับตอบกลับข้อความผ่าน LINE API
+ * @param {boolean} isEditModeFlag - สถานะโหมดแก้ไขที่ส่งมาจาก Webhook
+ * @param {string} inputGroupId - LINE Group ID (ถ้ามี)
+ */
+function handleClockIn(msg, userId, token, isEditModeFlag, inputGroupId) {
   try {
     let data;
     let cache;
     let pendingCodes;
 
+    // 🎯 ตรวจจับโหมดแก้ไข (รองรับทั้งการรับ Flag จาก Webhook และดักจากข้อความโดยตรง)
+    const isEditMode = isEditModeFlag || /^แก้ไข/i.test(msg.trim());
+    const cleanMsg = msg.replace(/^แก้ไข\s*/i, "").trim();
+
     // 2. ประมวลผลข้อความเบื้องต้น
     try {
-      data = parseComplexMessage(msg);
+      data = parseComplexMessage(cleanMsg);
+      
       // 🔑 ฝัง groupId เข้าใน data เพื่อให้ finalizeClockInSaving บันทึก Cache key ถูก Group ได้
-      if (data && groupId) data.groupId = groupId;
+      const activeGroupId = inputGroupId || (typeof groupId !== 'undefined' ? groupId : null);
+      if (data && activeGroupId) {
+        data.groupId = activeGroupId;
+      }
+      
       cache = CacheService.getScriptCache();
       pendingCodes = cache.get(`PENDING_IMG_CODES_${userId}`);
 
       // 🧠 ระบบ Hybrid Fallback: ถ้า Regex อ่านไม่ออก ให้โยนไปให้ AI ช่วยแกะ
-      const isOtNoonMissed =
-        /(OT|โอที)\s*เที่ยง/i.test(msg) &&
-        (!data ||
-          !data.employees ||
-          !data.employees.some((emp) => emp.has_ot_noon));
+      const isOtNoonMissed = /(OT|โอที)\s*เที่ยง/i.test(cleanMsg) && (!data || !data.employees || !data.employees.some((emp) => emp.has_ot_noon));
 
       if (!data || !data.date || !data.default_site || isOtNoonMissed) {
-        // ตัด async/await ออก เพื่อให้รันใน GAS ได้อย่างถูกต้องและไม่เกิด Syntax Error
-        data = processMessageWithAI(msg);
+        data = typeof processMessageWithAI === "function" ? processMessageWithAI(cleanMsg) : null;
+        
         if (data) {
-          const countMatch = msg.match(/ทั้งหมด\s*(\d+)\s*คน/);
+          const countMatch = cleanMsg.match(/ทั้งหมด\s*(\d+)\s*คน/);
           if (countMatch) data.expected_count = parseInt(countMatch[1], 10);
 
-          const matchOT = msg.match(
-            /(OT|โอที)\s*เที่ยง\s*(?:(\d{1,2}[.:]\d{2})\s*[-ถึง]\s*(\d{1,2}[.:]\d{2}))?/i,
-          );
+          const matchOT = cleanMsg.match(/(OT|โอที)\s*เที่ยง\s*(?:(\d{1,2}[.:]\d{2})\s*[-ถึง]\s*(\d{1,2}[.:]\d{2}))?/i);
           if (matchOT) {
             data.has_ot_noon = true;
             if (matchOT[2] && matchOT[3]) {
@@ -989,31 +1000,47 @@ function handleClockIn(msg, userId, token) {
           }
         }
       }
-      if (
-        data &&
-        typeof msg === "string" &&
-        (msg.includes("(OT ต่อเนื่อง)") || msg.includes("OT ต่อเนื่อง"))
-      ) {
+      
+      // 🎯 ตรวจจับคีย์เวิร์ด OT ต่อเนื่องแบบยืดหยุ่น (ลบช่องว่างก่อนเช็ค)
+      const cleanMsgForOT = msg.replace(/\s+/g, '');
+      if (data && (/(OT|โอที)\s*ต่อเนื่อง/i.test(msg) || cleanMsgForOT.includes("OTต่อเนื่อง") || cleanMsgForOT.includes("โอทีต่อเนื่อง") || cleanMsgForOT.includes("otต่อเนื่อง"))) {
         data.is_continuous_ot = true;
       }
+      
+      if (data) {
+        data.is_edit_mode = isEditMode;
+        data.original_msg = msg;
+
+        if (isEditMode && data.date && data.employees && data.employees.length > 0) {
+          try {
+            data.employees.forEach((emp) => {
+              if (typeof undoLastEntry === "function") {
+                undoLastEntry(emp.firstname, data.date);
+              }
+            });
+          } catch (undoErr) {
+            console.error("handleClockIn isEditMode undo error: " + undoErr.message);
+          }
+        }
+      }
+
     } catch (err) {
-      logErrorToSheet(null, msg, "Error parsing message: " + err.message);
-      reply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบครับ");
+      if (typeof logErrorToSheet === "function") logErrorToSheet(null, msg, "Error parsing message: " + err.message);
+      if (typeof emergencyReply === "function") {
+        emergencyReply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบครับ");
+      } else if (typeof reply === "function") {
+        reply(token, "❌ ระบบไม่สามารถอ่านข้อความได้ กรุณาตรวจสอบรูปแบบครับ");
+      }
       return;
     }
 
     // 3. จัดการข้อมูลกรณีส่งรูปภาพมาก่อนหน้า (จาก Cache)
     if (pendingCodes && data) {
-      const empList = getEmployeesByCodes(JSON.parse(pendingCodes));
-      if (
-        data.expected_count &&
-        data.expected_count > 0 &&
-        empList.length !== data.expected_count
-      ) {
-        reply(
-          token,
-          `⚠️ จำนวนพนักงานไม่ตรงกัน!\nคุณพิมพ์แจ้ง: "${data.expected_count} คน"\nระบบอ่านจากรูปได้: "${empList.length} คน"\n👉 รบกวนตรวจสอบและส่งรูปใหม่ครับ`,
-        );
+      const empList = typeof getEmployeesByCodes === "function" ? getEmployeesByCodes(JSON.parse(pendingCodes)) : [];
+      if (data.expected_count && data.expected_count > 0 && empList.length !== data.expected_count) {
+        if (typeof reply === "function") {
+          reply(token, `⚠️ จำนวนพนักงานไม่ตรงกัน!\nคุณพิมพ์แจ้ง: "${data.expected_count} คน"\nระบบอ่านจากรูปได้: "${empList.length} คน"\n👉 รบกวนตรวจสอบและส่งรูปใหม่ครับ`);
+        }
         cache.remove(`PENDING_IMG_CODES_${userId}`);
         return;
       }
@@ -1033,204 +1060,217 @@ function handleClockIn(msg, userId, token) {
 
     // 4. ตรวจสอบความสมบูรณ์ของข้อมูลขั้นสุดท้าย
     if (!data || !data.date || !data.employees || data.employees.length === 0) {
-      logErrorToSheet(
-        getTargetFileIdByDate(null),
-        msg,
-        "❌ ไม่พบรายชื่อพนักงาน",
-      );
-      reply(
-        token,
-        "❌ ข้อมูลไม่ครบครับ!\nหากต้องการลงเวลาโดยไม่พิมพ์ชื่อ โปรดส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ",
-      );
+      const targetFileId = typeof getTargetFileIdByDate === "function" ? getTargetFileIdByDate(null) : null;
+      if (typeof logErrorToSheet === "function") logErrorToSheet(targetFileId, msg, "❌ ไม่พบรายชื่อพนักงาน");
+      
+      if (typeof emergencyReply === "function") {
+         emergencyReply(token, "❌ ข้อมูลไม่ครบครับ!\nหากต้องการลงเวลาโดยไม่พิมพ์ชื่อ โปรดส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ");
+      } else if (typeof reply === "function") {
+         reply(token, "❌ ข้อมูลไม่ครบครับ!\nหากต้องการลงเวลาโดยไม่พิมพ์ชื่อ โปรดส่ง 'รูปบัตรตอก' เข้ามาก่อนครับ");
+      }
       return;
     }
 
-    data.original_msg = msg;
-    const check = checkDate(data.date);
+    // 5. ตรวจสอบวันที่
+    let check = { status: "OK", msg: "" };
+    if (typeof checkDate === "function") {
+      check = checkDate(data.date);
+    } else if (typeof checkDateLogic === "function") {
+      check = checkDateLogic(data.date);
+    }
+    data.checkStatus = check;
 
-    // 5. ดึงลิสต์ Admin อย่างปลอดภัย (ป้องกัน Error หากไม่มีค่า)
-    const adminIdStr =
-      typeof getDynamicConfig === "function"
-        ? getDynamicConfig("ADMIN_LINE_IDS") || ""
-        : "";
+    // 6. ดึงลิสต์ Admin อย่างปลอดภัย (ป้องกัน Error หากไม่มีค่า)
+    const adminIdStr = typeof getDynamicConfig === "function" ? getDynamicConfig("ADMIN_LINE_IDS") || "" : "";
     const adminArray = adminIdStr.split(",").map((id) => id.trim());
-    const isUserAdmin =
-      adminArray.includes(userId) ||
-      (typeof isAdmin === "function" && isAdmin(userId));
+    const isUserAdmin = adminArray.includes(userId) || 
+                        (typeof isAdmin === "function" && isAdmin(userId)) || 
+                        (typeof verifyAdminRole === "function" && verifyAdminRole(userId));
 
-    // 6. เช็คการบล็อกวันที่ (Admin สามารถทะลุได้)
+    // เช็คการบล็อกวันที่ (Admin สามารถทะลุได้)
     if (check.status === "BLOCK" && !isUserAdmin) {
-      reply(token, `⛔ ${check.msg}`);
+      if (typeof emergencyReply === "function") {
+        emergencyReply(token, `⛔ บันทึกไม่ได้: ${check.msg}`);
+      } else if (typeof reply === "function") {
+        reply(token, `⛔ บันทึกไม่ได้: ${check.msg}`);
+      }
       return;
     }
 
-    // 7. ดำเนินการบันทึกข้อมูลและตรวจสอบ OT (ลบ await ออกเพื่อให้เป็น Synchronous)
-    checkOTAndProceed(
-      data,
-      userId,
-      token,
-      check,
-      getTargetFileIdByDate(data.date),
-    );
+    const targetFileId = typeof getTargetFileIdByDate === "function" ? getTargetFileIdByDate(data.date) : null;
+
+    // 🧹 หากเป็นโหมด "แก้ไข" ให้ล้างข้อมูลคอลัมน์ลงเวลาเก่าของวันนั้นออกก่อนบันทึกใหม่
+    if (isEditMode && targetFileId && typeof clearDailySheetDataForDate === "function") {
+      clearDailySheetDataForDate(targetFileId, data.date);
+    }
+
+    // 7. ดำเนินการบันทึกข้อมูลและตรวจสอบ OT
+    if (typeof checkOTAndProceed === "function") {
+      checkOTAndProceed(data, userId, token, check, targetFileId);
+    }
 
     // 8. 🎯 ส่งข้อความยืนยันการบันทึกแบบแสดงรายชื่อ
     if (typeof formatResponse === "function") {
       const info = {
         date: data.date,
-        time:
-          data.time_start && data.time_end
-            ? `${data.time_start}-${data.time_end}`
-            : "ตามเวลาปกติ",
+        time: data.time_start && data.time_end ? `${data.time_start}-${data.time_end}` : "ตามเวลาปกติ",
         site: data.default_site,
-        // ใช้ Optional Chaining (?.) เพื่อป้องกัน Error หาก undefined
         accom: data.employees[0]?.accom || data.default_Accom || "ไม่ได้ระบุ",
       };
 
       const finalMsg = formatResponse(data.employees, info);
-      reply(token, finalMsg);
+      if (typeof reply === "function") {
+        reply(token, finalMsg);
+      }
     }
+
   } catch (err) {
-    logErrorToSheet(null, msg, "Critical Error HandleClockIn: " + err.message);
-    reply(token, "🔴 ระบบขัดข้อง กรุณาแจ้ง Admin ครับ");
+    console.error("handleClockIn Error: " + err.message);
+    if (typeof logErrorToSheet === "function") logErrorToSheet(null, msg, "Critical Error HandleClockIn: " + err.message);
+    
+    if (typeof emergencyReply === "function") {
+      emergencyReply(token, "🔴 ระบบขัดข้อง เกิดข้อผิดพลาดในระบบ: " + err.message);
+    } else if (typeof reply === "function") {
+      reply(token, "🔴 ระบบขัดข้อง กรุณาแจ้ง Admin ครับ");
+    }
   }
 }
 
 /**
- * @description ตรวจสอบและคำนวณระยะเวลาทำงานล่วงเวลา (OT) พร้อมดำเนินการบันทึกหรือถามบริบทเพิ่มเติม
- * @param {Object} dataToProcess - อ็อบเจกต์ข้อมูลที่แยกมาได้จากข้อความ
- * @param {string} userId - LINE User ID
- * @param {string} token - Reply Token
- * @param {boolean} check - สถานะการตรวจสอบ
- * @param {string} targetFileId - ไอดีของไฟล์ Google Sheets เป้าหมาย
+ * 2. ฟังก์ชันตรวจสอบเงื่อนไข OT (ข้ามปุ่มถามเมื่อระบุ "OTต่อเนื่อง")
  */
 function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
   try {
-    const toMins = (t) => {
+    const toMins = function(t) {
       if (!t) return 0;
-      const parts = t.toString().replace(".", ":").split(":");
-      return (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+      const parts = t.toString().replace('.', ':').split(':');
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts, 10) || 0);
     };
+
     const sMins = toMins(dataToProcess.time_start);
     let eMins = toMins(dataToProcess.time_end);
     let hasOT = false;
-    let otMins = 0;
 
-    // 1. คำนวณจำนวนชั่วโมงทำงานรวมก่อน (หักพักเที่ยงถ้ามี)
     if (eMins > 0) {
-      if (eMins < sMins) eMins += 24 * 60; // กรณีข้ามคืน
+      if (eMins < sMins) eMins += 24 * 60;
+      let otMins = 0;
+      if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
+      if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
 
-      let totalMins = eMins - sMins;
-
-      // หักพักเที่ยง 1 ชั่วโมง
-      let breakStart = Math.max(sMins, 720);
-      let breakEnd = Math.min(eMins, 780);
-      let breakDuration = 0;
-
-      if (breakStart < breakEnd) {
-        breakDuration = breakEnd - breakStart;
-
-        // ตรวจสอบโอทีช่วงเที่ยง (ชดเชยเวลาพัก)
-        let hasNoonOt = false;
-        let noonOtMins = 0;
-
-        if (dataToProcess.has_ot_noon) {
-          hasNoonOt = true;
-          noonOtMins = Math.max(
-            noonOtMins,
-            toMins(dataToProcess.ot_noon_out || "13.00") -
-              toMins(dataToProcess.ot_noon_in || "12.00"),
-          );
-        }
-
-        if (dataToProcess.employees && Array.isArray(dataToProcess.employees)) {
-          dataToProcess.employees.forEach((emp) => {
-            if (emp.has_ot_noon) {
-              hasNoonOt = true;
-              noonOtMins = Math.max(
-                noonOtMins,
-                toMins(emp.ot_noon_out || "13.00") -
-                  toMins(emp.ot_noon_in || "12.00"),
-              );
-            }
-          });
-        }
-
-        if (hasNoonOt) {
-          breakDuration = Math.max(0, breakDuration - noonOtMins);
-        }
+      let hasNoonOt = false;
+      if (dataToProcess.employees && dataToProcess.employees.length > 0) {
+        dataToProcess.employees.forEach(function(emp) {
+          if (emp.has_ot_noon) hasNoonOt = true;
+        });
       }
-
-      let actualWorkMins = totalMins - breakDuration;
-
-      // 2. ตรวจสอบว่าทำงานเกิน 8 ชั่วโมงหรือไม่
-      if (actualWorkMins > 480) {
-        otMins = actualWorkMins - 480;
-        hasOT = true;
-      }
+      if (hasNoonOt) otMins += 60;
+      if (otMins > 0) hasOT = true;
     }
 
-    // 3. ดำเนินการต่อตามสถานะ OT
-    if (hasOT) {
+    // ⚡ ตรวจจับคีย์เวิร์ด OT ต่อเนื่องและครอบคลุมภาษาไทย (โอทีต่อเนื่อง)
+    const cleanMsgForOT = (dataToProcess.original_msg || "").replace(/\s+/g, '');
+    const isContinuousOT = dataToProcess.is_continuous_ot || /(OT|โอที)\s*ต่อเนื่อง/i.test(dataToProcess.original_msg || "") || cleanMsgForOT.includes("OTต่อเนื่อง") || cleanMsgForOT.includes("โอทีต่อเนื่อง") || cleanMsgForOT.includes("otต่อเนื่อง");
+
+    // หากระบุ "OTต่อเนื่อง" จะข้ามการส่งปุ่มถามซ้ำ และบันทึกข้อมูลลงตารางทันที
+    if (hasOT && !isContinuousOT) {
       dataToProcess.checkStatus = check;
-      CacheService.getScriptCache().put(
-        `PENDING_OT_CONFIRM_${userId}`,
-        JSON.stringify(dataToProcess),
-        1800,
-      );
-      replyWithButtons(
-        token,
-        `ตรวจพบการทำ OT\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`,
-        [
-          {
-            label: "ทำที่เดิม/งานเดิม",
-            data: `#ทำที่เดิม/งานเดิม|${dataToProcess.date}`,
-          },
-          {
-            label: "เปลี่ยนไซต์/เปลี่ยนงาน",
-            data: `#เปลี่ยนไซต์/เปลี่ยนงาน|${dataToProcess.date}`,
-          },
-          {
-            label: "ยกเลิกลงเวลา",
-            data: `#ยกเลิกลงเวลา|${dataToProcess.date}`,
-          },
-        ],
-      );
+      dataToProcess.targetFileId = targetFileId;
+
+      const cache = CacheService.getScriptCache();
+      cache.put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 300);
+
+      replyWithButtons(token, `ตรวจพบการทำ OT\n\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
     } else {
-      finalizeClockInSaving(
-        dataToProcess,
-        userId,
-        token,
-        check,
-        null,
-        targetFileId,
-      );
+      finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
     }
   } catch (err) {
-    if (typeof logError === "function")
-      logError(
-        "checkOTAndProceed_error",
-        err.toString(),
-        JSON.stringify(dataToProcess),
-      );
-    reply(token, "🔴 เกิดข้อผิดพลาดในการตรวจสอบเวลา OT กรุณาแจ้ง Admin ครับ");
+    console.error("checkOTAndProceed Error: " + err.message);
+    emergencyReply(token, "❌ ขัดข้องระหว่างตรวจสอบโอที กรุณาลองใหม่ครับ");
   }
 }
 
-function processPendingClockIn(answer, pendingDataStr, userId, token) {
+/**
+ * 2. ฟังก์ชันตรวจสอบเงื่อนไข OT (ข้ามปุ่มถามเมื่อระบุ "OTต่อเนื่อง")
+ */
+function checkOTAndProceed(dataToProcess, userId, token, check, targetFileId) {
   try {
-    let dataToProcess = JSON.parse(pendingDataStr);
-    if (answer === "ลงเวลา 13.00 น.") dataToProcess.time_start = "13.00";
-    CacheService.getScriptCache().remove(`PENDING_CLOCKIN_${userId}`);
-    checkOTAndProceed(
-      dataToProcess,
-      userId,
-      token,
-      dataToProcess.checkStatus,
-      null,
-    );
+    const toMins = function(t) {
+      if (!t) return 0;
+      const parts = t.toString().replace('.', ':').split(':');
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+    };
+
+    const sMins = toMins(dataToProcess.time_start);
+    let eMins = toMins(dataToProcess.time_end);
+    let hasOT = false;
+
+    if (eMins > 0) {
+      if (eMins < sMins) eMins += 24 * 60;
+      let otMins = 0;
+      if (sMins < 480) otMins += (Math.min(eMins, 480) - sMins);
+      if (eMins > 1020) otMins += (eMins - Math.max(sMins, 1020));
+
+      let hasNoonOt = false;
+      if (dataToProcess.employees && dataToProcess.employees.length > 0) {
+        dataToProcess.employees.forEach(function(emp) {
+          if (emp.has_ot_noon) hasNoonOt = true;
+        });
+      }
+      if (hasNoonOt) otMins += 60;
+      if (otMins > 0) hasOT = true;
+    }
+
+    // ⚡ ตรวจจับคีย์เวิร์ด OT ต่อเนื่อง
+    const isContinuousOT = dataToProcess.is_continuous_ot || /(OT|โอที)\s*ต่อเนื่อง/i.test(dataToProcess.original_msg || "");
+
+    // หากระบุ "OTต่อเนื่อง" จะข้ามการส่งปุ่มถามซ้ำ และบันทึกข้อมูลลงตารางทันที
+    if (hasOT && !isContinuousOT) {
+      dataToProcess.checkStatus = check;
+      dataToProcess.targetFileId = targetFileId;
+
+      const cache = CacheService.getScriptCache();
+      cache.put(`PENDING_OT_CONFIRM_${userId}`, JSON.stringify(dataToProcess), 300);
+
+      replyWithButtons(token, `ตรวจพบการทำ OT\n\nโปรดยืนยันว่า... ทำ OT ที่ไซต์งานเดิม และ ลักษณะงานเดิม หรือไม่?`, ["ทำที่เดิม/งานเดิม", "เปลี่ยนไซต์/เปลี่ยนงาน", "ยกเลิกลงเวลา"]);
+    } else {
+      finalizeClockInSaving(dataToProcess, userId, token, check, null, targetFileId);
+    }
+  } catch (err) {
+    console.error("checkOTAndProceed Error: " + err.message);
+    emergencyReply(token, "❌ ขัดข้องระหว่างตรวจสอบโอที กรุณาลองใหม่ครับ");
+  }
+}
+
+/**
+ * 3. ฟังก์ชันช่วยล้างข้อมูลลงเวลาเก่าบนแผ่นงานประจำวัน เมื่อพิมพ์คำว่า "แก้ไข"
+ */
+function clearDailySheetDataForDate(fileId, dateStr) {
+  try {
+    const ss = SpreadsheetApp.openById(fileId);
+    const targetSheetName = typeof parseThaiDate === "function" ? parseThaiDate(dateStr) : dateStr;
+    let sheet = ss.getSheetByName(targetSheetName);
+
+    if (!sheet) {
+      const cleanTarget = targetSheetName.replace(/\s+/g, "");
+      const sheets = ss.getSheets();
+      for (let i = 0; i < sheets.length; i++) {
+        if (sheets[i].getName().replace(/\s+/g, "") === cleanTarget) {
+          sheet = sheets[i];
+          break;
+        }
+      }
+    }
+
+    if (sheet) {
+      const startRow = parseInt(PropertiesService.getScriptProperties().getProperty("START_ROW") || "3", 10);
+      const lastRow = sheet.getLastRow();
+      if (lastRow >= startRow) {
+        // ล้างคอลัมน์ F ถึง Q (คอลัมน์ 6 ถึง 17: ไซต์งาน, งานที่ทำ, ชม.ทำงาน, OT เช้า/เที่ยง/เย็น, รวม OT)
+        sheet.getRange(startRow, 6, lastRow - startRow + 1, 12).clearContent();
+      }
+    }
   } catch (e) {
-    CacheService.getScriptCache().remove(`PENDING_CLOCKIN_${userId}`);
-    reply(token, "❌ ข้อมูลหมดอายุครับ");
+    console.error("clearDailySheetDataForDate error: " + e.message);
   }
 }
 

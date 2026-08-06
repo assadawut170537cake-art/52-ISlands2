@@ -151,10 +151,12 @@ function writeToDailySheet(data, userId, fileId) {
       
       if (userId) {
         try {
-          PropertiesService.getScriptProperties().setProperty(
-            `LAST_ENTRY_${userId}`, 
-            JSON.stringify({ date: data.date, names: processedNames })
-          );
+          const props = PropertiesService.getScriptProperties();
+          const lastEntryData = JSON.stringify({ date: data.date, names: processedNames });
+          props.setProperty(`LAST_ENTRY_${userId}`, lastEntryData);
+          if (data.groupId) {
+            props.setProperty(`LAST_ENTRY_${data.groupId}`, lastEntryData);
+          }
         } catch (propertyError) {
           console.warn("ไม่สามารถบันทึก Properties ล่าสุดได้: " + propertyError);
         }
