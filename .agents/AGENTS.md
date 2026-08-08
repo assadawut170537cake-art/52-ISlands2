@@ -22,6 +22,7 @@
 - ต้องตรวจสอบ Path ปัจจุบันทุกครั้งก่อนทำการแก้ไขไฟล์ หรือ Deploy เพื่อป้องกันการทำงานข้ามโปรเจกต์
 - หากต้องแก้โค้ดที่มีผลกระทบวงกว้าง ให้แนะนำหรือเรียกใช้คำสั่ง Checkpoint (เช่น `start-work-checkpoint`) เสมอ
 - หากพบปัญหาหรือ Error ต้องวิเคราะห์หาสาเหตุที่แท้จริง พร้อมอธิบายวิธีแก้ไขและ "วิธีป้องกันการเกิดซ้ำ"
+- **Auto-Update Document:** Whenever you modify or add features to the project codebase, you MUST review and update the `PROJECT_STRUCTURE.md` file to ensure it accurately reflects the current structure, functions, and logic of the project.
 
 ## ⚠️ System Architectural Memory & Deprecated Services
 
