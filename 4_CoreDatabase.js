@@ -98,7 +98,7 @@ function writeToDailySheetBatch(data, userId, fileId) {
   });
 
     sheet.getRange(startRow, 1, block.length, block[0].length).setValues(block);
-    return { success: successCount, total: data.employees.length, errors: errors };
+    return { count: successCount, success: successCount, total: data.employees.length, errors: errors };
   } catch (err) {
     if (typeof logSystemEvent === "function") logSystemEvent("DB_ERROR", "writeToDailySheetBatch", err.message);
     return { count: 0, errors: ["เกิดข้อผิดพลาดภายในระบบ: " + err.message] };

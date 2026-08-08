@@ -1022,6 +1022,7 @@ function handleClockIn(msg, userId, token, isEditModeFlag, inputGroupId) {
       }
       
       if (data) {
+        data.groupId = inputGroupId || data.groupId || null;
         data.is_edit_mode = isEditMode;
         data.original_msg = msg;
 
@@ -1321,10 +1322,12 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
     }
   }
 
+  const successCount = (writeRes && writeRes.count !== undefined) ? writeRes.count : ((writeRes && writeRes.success !== undefined) ? writeRes.success : 0);
+
   let txt = "";
   if (writeRes.errors && writeRes.errors.length > 0)
     txt += `⚠️ หาชื่อไม่พบ: ${writeRes.errors.join(", ")}\n`;
-  if (txt !== "" || writeRes.count === 0)
+  if (txt !== "" || successCount === 0)
     logErrorToSheet(targetId, data.original_msg, txt || "บันทึกไม่ได้");
 
   let timeStatus =
@@ -1333,10 +1336,10 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
       : `(เวลา: ${data.time_start}-${data.time_end})`;
 
   let replyText = "";
-  if (writeRes.count === 0) {
+  if (successCount === 0) {
     replyText = `❌ บันทึกไม่สำเร็จ${txt ? `\n${txt.trim()}` : ""}`;
   } else {
-    replyText = `✅ บันทึกสำเร็จ ${writeRes.count} คน\n📅 วันที่: ${data.date || "-"}${timeStatus ? " " + timeStatus : ""}`;
+    replyText = `✅ บันทึกสำเร็จ ${successCount} คน\n📅 วันที่: ${data.date || "-"}${timeStatus ? " " + timeStatus : ""}`;
     if (txt) replyText += `\n${txt.trim()}`;
     if (isTesting) replyText += `\n🧪 [โหมดทดสอบ]`;
   }

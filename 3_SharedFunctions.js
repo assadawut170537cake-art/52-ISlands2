@@ -137,6 +137,10 @@ function parseComplexMessage(text) {
     const otContPattern = /\(?\s*(?:OT|โอที|ot)\s*ต่อเนื่อง\s*\)?/gi;
     for (let i = 0; i < lines.length; i++) {
       const lineStr = lines[i].trim();
+      // 🛡️ ข้ามบรรทัดหัวเรื่อง เช่น "#7/8/69 สำโรง เข้า คลองสาน" เพื่อป้องกันการดึงตัวเลข 7 หรือวันที่มาเป็นชื่อพนักงาน
+      if (lineStr.includes("เข้า") || /^#?\d{1,2}[\/.-]\d{1,2}/.test(lineStr)) {
+        continue;
+      }
       // รองรับทั้งแบบมีตัวเลขนำหน้า (เช่น 1. อัษฎาวุธ/งานระบบ) และแบบไม่มีตัวเลขนำหน้า (เช่น อัษฎาวุธ/งานระบบ)
       if (/^\d+\./.test(lineStr) || lineStr.includes('/')) {
         const parts = lineStr.split('/');
