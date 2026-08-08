@@ -248,7 +248,7 @@ function calculateAndTimeEntryFromValues(block, rowIndex, sT, eT, isN, nI, nO, r
             } else if (!isNewOTRule && e > 1020) {
                 otEIn = Math.max(1020, e - remainingOt);
             } else {
-                otEIn = Math.max(s, e - remainingOt);
+                otEIn = Math.max(1020, e - remainingOt);
             }
             otData[4] = toF(otEIn);
             otData[5] = toF(otEIn + remainingOt);

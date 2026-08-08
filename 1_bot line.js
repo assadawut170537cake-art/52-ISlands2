@@ -212,8 +212,20 @@ function handleLineWebhook(requestData, e) {
   if (event.type === "unsend") {
     try {
       const userId = source.userId;
+      const groupId = source.groupId || source.roomId || null;
       const props = PropertiesService.getScriptProperties();
-      const lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+      
+      let lastJson = null;
+      let usedKey = null;
+      if (groupId) {
+        lastJson = props.getProperty(`LAST_ENTRY_${groupId}`);
+        if (lastJson) usedKey = `LAST_ENTRY_${groupId}`;
+      }
+      if (!lastJson && userId) {
+        lastJson = props.getProperty(`LAST_ENTRY_${userId}`);
+        if (lastJson) usedKey = `LAST_ENTRY_${userId}`;
+      }
+
       if (lastJson) {
         const last = JSON.parse(lastJson);
         if (
@@ -224,7 +236,9 @@ function handleLineWebhook(requestData, e) {
           for (let i = 0; i < last.names.length; i++) {
             undoLastEntry(last.names[i], last.date);
           }
-          props.deleteProperty(`LAST_ENTRY_${userId}`);
+          if (userId) props.deleteProperty(`LAST_ENTRY_${userId}`);
+          if (groupId) props.deleteProperty(`LAST_ENTRY_${groupId}`);
+          console.log(`[UNSEND SUCCESS] Restored ${last.names.length} entries for date ${last.date} via ${usedKey}`);
         }
       }
     } catch (e) {
@@ -1315,14 +1329,17 @@ function finalizeClockInSaving(data, userId, token, check, customOt, targetId) {
 
   let timeStatus =
     !data.time_end || data.time_end === ""
-      ? `(ลงเวลาเข้า: ${data.time_start})`
+      ? `(เวลาเข้า: ${data.time_start || "-"})`
       : `(เวลา: ${data.time_start}-${data.time_end})`;
-  let displaySite = data.default_site;
-  if (customOtSite)
-    displaySite += `\n[ไซต์ OT: ${customOtSite} | งาน OT: ${customOtTask}]`;
-  const accomText = data.default_Accom || writeRes.accom || "ไม่ได้ระบุ";
 
-  const replyText = `${writeRes.count === 0 ? "❌ ไม่พบข้อมูล" : `✅ บันทึกสำเร็จ ${writeRes.count} คน`}${data.date ? `\n📅 วันที่: ${data.date}` : ""}\n${timeStatus}\nไซต์: ${displaySite}\n[ที่พัก: ${accomText}]${isTesting ? "\n🧪 [โหมดทดสอบ]" : ""}${txt ? "\n" + txt : ""}\n\n📌 โปรดตรวจเช็คความถูกต้อง หากผิดพลาดแจ้งแอดมินทันที`;
+  let replyText = "";
+  if (writeRes.count === 0) {
+    replyText = `❌ บันทึกไม่สำเร็จ${txt ? `\n${txt.trim()}` : ""}`;
+  } else {
+    replyText = `✅ บันทึกสำเร็จ ${writeRes.count} คน\n📅 วันที่: ${data.date || "-"}${timeStatus ? " " + timeStatus : ""}`;
+    if (txt) replyText += `\n${txt.trim()}`;
+    if (isTesting) replyText += `\n🧪 [โหมดทดสอบ]`;
+  }
 
   // ---------------------------------------------------------
   // 🟢 เพิ่มโค้ด: บันทึกข้อมูลลง Cache สำหรับรองรับคำสั่ง "ยกเลิกล่าสุด"
@@ -1539,10 +1556,12 @@ function handleTestMode(content, replyToken) {
 function handleCancelCommands(commandText, userId, msg, globalReplyToken, groupId) {
   try {
     const cleanCmd = (commandText || "").replace(/^#/, "").trim();
-    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (รองรับทั้ง #ยกเลิกล่าสุด, ยกเลิกล่าสุด, #ยกเลิกรายการล่าสุด) ---
+    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (รองรับ #ยกเลิก, ยกเลิก, #ยกเลิกล่าสุด, ยกเลิกล่าสุด, #ยกเลิกรายการล่าสุด, ยกเลิกงาน) ---
     if (
+      cleanCmd === "ยกเลิก" ||
+      cleanCmd === "ยกเลิกล่าสุด" ||
       cleanCmd === "ยกเลิกรายการล่าสุด" ||
-      cleanCmd === "ยกเลิกล่าสุด"
+      cleanCmd === "ยกเลิกงาน"
     ) {
       if (typeof logAuditTrail === "function") {
         logAuditTrail(

@@ -297,12 +297,12 @@ function calculateAndTimeEntry(sheet, row, sT, eT, isN, nI, nO, recordDate, isCo
         // 2.3 ลงช่อง OT เย็น
         if (remainingOt > 0) {
             let otEIn = 0;
-            if (isNewOTRule && e > 1050) {
+            if (isNewOTRule && !isContinuousOT && e > 1050) {
                 otEIn = Math.max(1050, e - remainingOt);
             } else if (!isNewOTRule && e > 1020) {
                 otEIn = Math.max(1020, e - remainingOt);
             } else {
-                otEIn = Math.max(s, e - remainingOt);
+                otEIn = Math.max(1020, e - remainingOt);
             }
             otData[4] = toF(otEIn);
             otData[5] = toF(otEIn + remainingOt);
