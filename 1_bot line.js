@@ -1559,13 +1559,9 @@ function handleTestMode(content, replyToken) {
 function handleCancelCommands(commandText, userId, msg, globalReplyToken, groupId) {
   try {
     const cleanCmd = (commandText || "").replace(/^#/, "").trim();
-    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (รองรับ #ยกเลิก, ยกเลิก, #ยกเลิกล่าสุด, ยกเลิกล่าสุด, #ยกเลิกรายการล่าสุด, ยกเลิกงาน) ---
-    if (
-      cleanCmd === "ยกเลิก" ||
-      cleanCmd === "ยกเลิกล่าสุด" ||
-      cleanCmd === "ยกเลิกรายการล่าสุด" ||
-      cleanCmd === "ยกเลิกงาน"
-    ) {
+    // --- 1. เงื่อนไข: ยกเลิกรายการล่าสุด (รองรับทั้ง #ยกเลิก, ยกเลิก, ยกเลิกรายการ, ยกเลิกล่าสุด, ยกเลิกรายการล่าสุด, ยกเลิกงาน, undo, cancel) ---
+    const isUndoLastCmd = /^(#?\s*(ยกเลิก|undo|cancel)(รายการ|ล่าสุด|งาน|ข้อมูล|\s)*)$/i.test(cleanCmd);
+    if (isUndoLastCmd) {
       if (typeof logAuditTrail === "function") {
         logAuditTrail(
           userId,
