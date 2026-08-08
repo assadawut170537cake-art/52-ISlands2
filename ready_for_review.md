@@ -62,3 +62,9 @@
 
 ## รอบการตรวจสอบ: 7/8/2569 01:47:41
 - [ ] 3_SharedFunctions.js
+
+## รอบการตรวจสอบ: 8/8/2569 19:25:04
+- [ ] 1_bot line.js
+- [ ] 3_SharedFunctions.js
+- [ ] 4_CoreDatabase.js
+- [ ] PROJECT_STRUCTURE.md
