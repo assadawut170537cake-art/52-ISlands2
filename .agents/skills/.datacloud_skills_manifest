@@ -1,5 +1,5 @@
 {
-  "bundleChecksum": "c8488f4a44cab5a65745b6c70a0f27d30149aeb3e4a951e0f70c4c9032d15102",
+  "bundleChecksum": "ae17eac5bf864e5c689dd8208117aefb0b412f17c7b29befa2f156c2c783e651",
   "skills": {
     "accidental-data-loss-prevention": {
       "status": "installed",
@@ -45,6 +45,10 @@
       "status": "installed",
       "checksum": "553a6cd984882b1a63782885c54c0120f40de214c11fdbf46ec05e6acbf88840"
     },
+    "enforcing-resource-attribution": {
+      "status": "installed",
+      "checksum": "9b65878e9635443b17b01ab78a06e459df77763b325f95fe592a783c1c60a645"
+    },
     "federate-lakehouse-catalog": {
       "status": "installed",
       "checksum": "c1e071ca3d8c9eaa42ae814f2d4ae2e5e12f3e0f289367c74ced4d87ccf157d3"
@@ -77,14 +81,6 @@
       "status": "installed",
       "checksum": "d9f68d99f5d7e291868a2968ba9483b73f520c61108fcdbdfc7e65f21c0c232c"
     },
-    "gcp-spark": {
-      "status": "installed",
-      "checksum": "ff78313ac52d2c99292e513f307e63c45377bc3cfb989ac191e56bfaf70337a7"
-    },
-    "gcs-security-assessment": {
-      "status": "installed",
-      "checksum": "0f5d2c7a8a6431a27ffa6b2c05aad42f12c3a61a0c248cb9f772edc636e4f543"
-    },
     "managing-python-dependencies": {
       "status": "installed",
       "checksum": "04a1ab128e1167a02a605d6b1459d9512c4a58cfeb81a8f5303e814eafe089ef"
@@ -101,9 +97,25 @@
       "status": "installed",
       "checksum": "276efcab0cdeb25cb412644bcf0fd5fb827f4873b44a6ba24f4e49e035d25c3e"
     },
-    "enforcing-resource-attribution": {
+    "gcp-managed-airflow-dag-authoring": {
       "status": "installed",
-      "checksum": "9b65878e9635443b17b01ab78a06e459df77763b325f95fe592a783c1c60a645"
+      "checksum": "42c5b4daf03d4ecc6f71f4e7108e279aba97c8c3b425ac06f2da21a246c602ad"
+    },
+    "gcp-managed-airflow-recommendations": {
+      "status": "installed",
+      "checksum": "7c125f4de3a7d2589cb6e7d10edcc1592effcf68653be5fd674ff155c674b13a"
+    },
+    "gcp-spark": {
+      "status": "installed",
+      "checksum": "e736069b736fc212df40564edb2149450dd90a293035d7f51816583617ac54ff"
+    },
+    "gcs-security-assessment": {
+      "status": "installed",
+      "checksum": "48dc5311949f7e03d1c81572dd85006dd3d1a227d9fbb1cbedf35968dc00d125"
+    },
+    "google-cloud-storage-basics": {
+      "status": "installed",
+      "checksum": "127e786ba347333e8b0e232cf88fcf1a7de4f7aae0db80b669684d215673a7ef"
     }
   }
 }
